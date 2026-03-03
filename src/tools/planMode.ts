@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 // ─── Plan mode state ───────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ export const enterPlanModeTool: ToolDefinition = {
     required: [],
   },
   async execute(_input) {
+    logger.app.info("EnterPlanMode ativado");
     return (
       "Modo de planejamento ativado. Você pode explorar o código livremente usando " +
       "Read, Glob, Grep, WebFetch, WebSearch e TaskCreate. " +
@@ -98,14 +100,17 @@ export const exitPlanModeTool: ToolDefinition = {
     }
 
     if (_onExitPlanMode) {
+      logger.app.info("ExitPlanMode solicitado", { planLength: planContent.length, allowedPromptsCount: allowedPrompts?.length ?? 0 });
       // Trigger UI approval flow
       const approved = await new Promise<boolean>((resolve) => {
         _onExitPlanMode!({ planContent, allowedPrompts, resolve });
       });
 
       if (!approved) {
+        logger.app.info("ExitPlanMode rejeitado pelo usuário");
         return "Plano rejeitado pelo usuário. Por favor, revise sua abordagem e tente novamente.";
       }
+      logger.app.info("ExitPlanMode aprovado pelo usuário");
       return (
         "Plano aprovado! Você pode prosseguir com a implementação. " +
         "Ferramentas de mutação (Bash, Write, Edit) estão disponíveis."

@@ -3,6 +3,7 @@ import path from "path";
 import os from "os";
 import { createHash } from "crypto";
 import type { Message } from "./types.ts";
+import { logger } from "./logger.ts";
 
 const SESSIONS_DIR = path.join(os.homedir(), ".sofik", "sessions");
 
@@ -32,13 +33,23 @@ export function generateSessionId(): string {
 export function saveSession(session: Session): void {
   session.updatedAt = new Date().toISOString();
   fs.writeFileSync(sessionPath(session.id), JSON.stringify(session, null, 2), "utf-8");
+  logger.session.info("Sessão salva", {
+    sessionId: session.id,
+    model: session.model,
+    messageCount: session.messages.length,
+    cwd: session.cwd,
+    title: session.title,
+  });
 }
 
 export function loadSession(id: string): Session | null {
   try {
     const raw = fs.readFileSync(sessionPath(id), "utf-8");
-    return JSON.parse(raw) as Session;
-  } catch {
+    const session = JSON.parse(raw) as Session;
+    logger.session.info("Sessão carregada", { sessionId: id, messageCount: session.messages.length, model: session.model });
+    return session;
+  } catch (err) {
+    logger.session.warn("Falha ao carregar sessão", { sessionId: id, error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
@@ -126,7 +137,7 @@ export function searchSessions(query: string): Array<{
 }
 
 export function createSession(model: string): Session {
-  return {
+  const session: Session = {
     id: generateSessionId(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -134,6 +145,8 @@ export function createSession(model: string): Session {
     cwd: process.cwd(),
     messages: [],
   };
+  logger.session.info("Sessão criada", { sessionId: session.id, model, cwd: session.cwd });
+  return session;
 }
 
 // ─── Project Memory ───────────────────────────────────────────────────────

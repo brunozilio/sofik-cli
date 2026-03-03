@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { dbQuery, dbQueryOne, dbRun } from "../index.ts";
+import { logger } from "../../lib/logger.ts";
 
 export type TaskStatus = "planning" | "pending" | "running" | "done" | "failed" | "cancelled";
 
@@ -34,6 +35,7 @@ export function createTask(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, context, status, position, opts.worktree_path ?? null, opts.worktree_branch ?? null, now, now]
   );
+  logger.job.info("Job criado", { taskId: id, status, position, contextPreview: context.slice(0, 100) });
   return getTask(id)!;
 }
 
@@ -76,6 +78,7 @@ export function updateTaskStatus(
   }
   values.push(id);
   dbRun(`UPDATE tasks SET ${fields.join(", ")} WHERE id = ?`, values);
+  logger.job.info("Status do job atualizado", { taskId: id, status });
 }
 
 export function updateTaskPlan(id: string, plan: string): void {
@@ -83,12 +86,14 @@ export function updateTaskPlan(id: string, plan: string): void {
     "UPDATE tasks SET plan = ?, updated_at = ? WHERE id = ?",
     [plan, new Date().toISOString(), id]
   );
+  logger.job.info("Plano do job salvo", { taskId: id, planLength: plan.length });
 }
 
 export function cancelTask(id: string): boolean {
   const task = getTask(id);
   if (!task || !["pending", "planning"].includes(task.status)) return false;
   updateTaskStatus(id, "cancelled", { completed_at: new Date().toISOString() });
+  logger.job.info("Job cancelado", { taskId: id });
   return true;
 }
 
@@ -98,5 +103,6 @@ export function clearCompletedTasks(): number {
     []
   );
   dbRun("DELETE FROM tasks WHERE status IN ('done', 'failed', 'cancelled')", []);
+  logger.job.info("Jobs concluídos removidos", { count: rows.length });
   return rows.length;
 }

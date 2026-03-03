@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import os from "os";
 import path from "path";
 import fs from "fs";
+import { logger } from "../lib/logger.ts";
 
 export { randomUUID };
 
@@ -31,6 +32,7 @@ export function getDb(): Database {
     _db.exec("PRAGMA journal_mode = WAL;");
     _db.exec("PRAGMA foreign_keys = ON;");
     _db.exec(SCHEMA_SQL);
+    logger.db.info("Banco de dados inicializado", { path: filePath });
 
     // Migrations: add columns that may not exist in older DBs
     for (const migration of [
@@ -53,7 +55,9 @@ export function dbQuery<T = Record<string, unknown>>(
   const db = getDb();
   const stmt = db.prepare(sql);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return stmt.all(...(params as any[])) as T[];
+  const rows = stmt.all(...(params as any[])) as T[];
+  logger.db.debug("dbQuery", { sql: sql.slice(0, 120), paramCount: params.length, rowCount: rows.length });
+  return rows;
 }
 
 export function dbQueryOne<T = Record<string, unknown>>(
@@ -63,7 +67,9 @@ export function dbQueryOne<T = Record<string, unknown>>(
   const db = getDb();
   const stmt = db.prepare(sql);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (stmt.get(...(params as any[])) as T) ?? null;
+  const row = (stmt.get(...(params as any[])) as T) ?? null;
+  logger.db.debug("dbQueryOne", { sql: sql.slice(0, 120), paramCount: params.length, found: row !== null });
+  return row;
 }
 
 export function dbRun(sql: string, params: unknown[] = []): void {
@@ -71,11 +77,15 @@ export function dbRun(sql: string, params: unknown[] = []): void {
   const stmt = db.prepare(sql);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   stmt.run(...(params as any[]));
+  logger.db.debug("dbRun", { sql: sql.slice(0, 120), paramCount: params.length });
 }
 
 export function dbTransaction<T>(fn: () => T): T {
   const db = getDb();
-  return db.transaction(fn)();
+  logger.db.debug("dbTransaction: iniciada");
+  const result = db.transaction(fn)();
+  logger.db.debug("dbTransaction: concluída");
+  return result;
 }
 
 // ── JSON helpers (SQLite stores JSON as TEXT) ──────────────────────────────────

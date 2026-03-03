@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../lib/types.ts";
 import { fetchWithProxy } from "../lib/fetchWithProxy.ts";
+import { logger } from "../lib/logger.ts";
 
 const MAX_CHARS = 20_000;
 
@@ -61,6 +62,9 @@ export const webFetchTool: ToolDefinition = {
     const url = input["url"] as string;
     const prompt = input["prompt"] as string | undefined;
 
+    const t0 = Date.now();
+    logger.tool.info("WebFetch iniciado", { url, hasPrompt: !!prompt });
+
     let response: Response;
     try {
       response = await fetchWithProxy(url, {
@@ -72,10 +76,12 @@ export const webFetchTool: ToolDefinition = {
         signal: AbortSignal.timeout(15_000),
       });
     } catch (err) {
+      logger.tool.warn("WebFetch falhou (rede)", { url, error: err instanceof Error ? err.message : String(err) });
       return `Error fetching ${url}: ${err instanceof Error ? err.message : String(err)}`;
     }
 
     if (!response.ok) {
+      logger.tool.warn("WebFetch HTTP erro", { url, status: response.status, statusText: response.statusText });
       return `Erro: HTTP ${response.status} ${response.statusText} para ${url}`;
     }
 
@@ -89,9 +95,12 @@ export const webFetchTool: ToolDefinition = {
       content = text;
     }
 
-    if (content.length > MAX_CHARS) {
+    const truncated = content.length > MAX_CHARS;
+    if (truncated) {
       content = content.slice(0, MAX_CHARS) + "\n\n[content truncated]";
     }
+
+    logger.tool.info("WebFetch concluído", { url, status: response.status, contentType, rawLength: text.length, finalLength: content.length, truncated, durationMs: Date.now() - t0 });
 
     const header = prompt ? `[Fetched: ${url} — looking for: ${prompt}]\n\n` : `[Fetched: ${url}]\n\n`;
     return header + content;

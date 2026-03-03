@@ -1,6 +1,7 @@
 import fs from "fs";
 import type { ToolDefinition } from "../lib/types.ts";
 import { ensureProjectMemoryPath } from "../lib/session.ts";
+import { logger } from "../lib/logger.ts";
 
 export const updateMemoryTool: ToolDefinition = {
   name: "UpdateMemory",
@@ -24,8 +25,10 @@ export const updateMemoryTool: ToolDefinition = {
     try {
       const memPath = ensureProjectMemoryPath();
       fs.writeFileSync(memPath, content, "utf-8");
+      logger.app.info("UpdateMemory executado", { path: memPath, contentLength: content.length });
       return `Memória atualizada: ${memPath}`;
     } catch (err) {
+      logger.app.error("UpdateMemory falhou", { error: err instanceof Error ? err.message : String(err) });
       return `Erro ao atualizar memória: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
@@ -54,8 +57,10 @@ export const appendMemoryTool: ToolDefinition = {
       const existing = fs.existsSync(memPath) ? fs.readFileSync(memPath, "utf-8") : "";
       const separator = existing && !existing.endsWith("\n") ? "\n\n" : existing ? "\n" : "";
       fs.writeFileSync(memPath, existing + separator + content, "utf-8");
+      logger.app.info("AppendMemory executado", { path: memPath, appendedLength: content.length, totalLength: existing.length + separator.length + content.length });
       return `Memória adicionada: ${memPath}`;
     } catch (err) {
+      logger.app.error("AppendMemory falhou", { error: err instanceof Error ? err.message : String(err) });
       return `Erro ao adicionar à memória: ${err instanceof Error ? err.message : String(err)}`;
     }
   },

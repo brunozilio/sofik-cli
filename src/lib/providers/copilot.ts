@@ -4,6 +4,7 @@ import { COPILOT_MODELS } from "../models.ts";
 import { buildSystemPrompt } from "../systemPrompt.ts";
 import { loadCopilotToken } from "../oauth.ts";
 import { fetchWithProxy } from "../fetchWithProxy.ts";
+import { logger } from "../logger.ts";
 
 const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token";
 const COPILOT_CHAT_URL  = "https://api.githubcopilot.com/chat/completions";
@@ -13,12 +14,14 @@ let cachedToken: { value: string; expiresAt: number } | null = null;
 
 async function getCopilotToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
+    logger.llm.debug("Token Copilot recuperado do cache");
     return cachedToken.value;
   }
 
   const github = loadCopilotToken();
   if (!github) throw new Error("Not logged in to GitHub Copilot. Run /login.");
 
+  logger.llm.info("Buscando novo token Copilot");
   const res = await fetchWithProxy(COPILOT_TOKEN_URL, {
     headers: {
       "Authorization": `token ${github.access_token}`,
@@ -29,6 +32,7 @@ async function getCopilotToken(): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
+    logger.llm.error("Falha ao buscar token Copilot", { status: res.status });
     throw new Error(`Failed to get Copilot token (${res.status}): ${text}`);
   }
 
@@ -38,6 +42,7 @@ async function getCopilotToken(): Promise<string> {
     expiresAt: new Date(data.expires_at).getTime(),
   };
 
+  logger.llm.info("Token Copilot obtido", { expiresAt: data.expires_at });
   return data.token;
 }
 
@@ -139,8 +144,10 @@ export class CopilotProvider implements LLMProvider {
     const token = await getCopilotToken();
     const systemPrompt = systemOverride ?? buildSystemPrompt();
     let currentMessages = messages;
+    let turnCount = 0;
 
     while (true) {
+      turnCount++;
       const body = {
         model,
         messages: toOpenAIMessages(currentMessages, systemPrompt),
@@ -150,6 +157,9 @@ export class CopilotProvider implements LLMProvider {
         }),
         stream: true,
       };
+
+      const t0 = Date.now();
+      logger.llm.info("Copilot API request", { model, turn: turnCount, messageCount: currentMessages.length, toolCount: tools.length });
 
       const res = await fetchWithProxy(COPILOT_CHAT_URL, {
         method: "POST",
@@ -166,8 +176,11 @@ export class CopilotProvider implements LLMProvider {
 
       if (!res.ok) {
         const text = await res.text().catch(() => res.statusText);
+        logger.llm.error("Copilot API erro", { model, status: res.status, turn: turnCount });
         throw new Error(`Copilot API error (${res.status}): ${text}`);
       }
+
+      logger.llm.info("Copilot API resposta recebida", { model, turn: turnCount, status: res.status, durationMs: Date.now() - t0 });
 
       const toolCallsMap = new Map<number, { id: string; name: string; args: string }>();
       let fullText = "";
@@ -261,15 +274,20 @@ export class CopilotProvider implements LLMProvider {
         if (!tool) {
           resultContent = `Error: Unknown tool "${tc.name}"`;
           isError = true;
+          logger.tool.warn("Copilot: ferramenta desconhecida", { toolName: tc.name });
         } else {
+          const toolT0 = Date.now();
+          logger.tool.info("Copilot: ferramenta iniciada", { toolName: tc.name });
           try {
             const { runPreToolUseHooks, runPostToolUseHooks } = await import("../hooks.ts");
             await runPreToolUseHooks(tc.name, input);
             resultContent = await tool.execute(input as Record<string, unknown>);
             await runPostToolUseHooks(tc.name, input, resultContent);
+            logger.tool.info("Copilot: ferramenta concluída", { toolName: tc.name, durationMs: Date.now() - toolT0, resultLength: resultContent.length });
           } catch (err) {
             resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
             isError = true;
+            logger.tool.error("Copilot: ferramenta erro", { toolName: tc.name, error: resultContent, durationMs: Date.now() - toolT0 });
           }
         }
 

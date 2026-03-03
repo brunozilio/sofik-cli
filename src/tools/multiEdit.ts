@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 interface EditOperation {
   file_path: string;
@@ -41,6 +42,8 @@ export const multiEditTool: ToolDefinition = {
     if (!Array.isArray(edits) || edits.length === 0) {
       return "Erro: edits deve ser um array não vazio";
     }
+
+    logger.tool.info("MultiEdit: iniciando edições em lote", { editCount: edits.length, files: [...new Set(edits.map(e => e.file_path))] });
 
     // Group edits by file path
     const byFile = new Map<string, EditOperation[]>();
@@ -85,8 +88,10 @@ export const multiEditTool: ToolDefinition = {
 
       try {
         fs.writeFileSync(filePath, content, "utf-8");
+        logger.tool.info("MultiEdit: arquivo atualizado", { filePath, editCount: fileEdits.length });
         results.push(`✓ ${filePath} (${fileEdits.length} edição${fileEdits.length > 1 ? "s" : ""})`);
       } catch (err) {
+        logger.tool.error("MultiEdit: falha ao escrever", { filePath, error: err instanceof Error ? err.message : String(err) });
         results.push(`Erro ao escrever ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }

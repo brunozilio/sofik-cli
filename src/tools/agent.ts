@@ -6,6 +6,7 @@ import { getActiveTasks } from "./task.ts";
 import { getCurrentModel } from "../lib/anthropic.ts";
 import { streamResponse } from "../lib/providers/index.ts";
 import type { Message } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 /**
  * Spawns a subagent: a fresh Claude instance with its own conversation loop.
@@ -66,9 +67,13 @@ When NOT to use: for simple single-tool calls — just call the tool directly.`,
     const tools = getAllTools().filter((t) => t.name !== "Agent");
     const messages: Message[] = [{ role: "user", content: prompt }];
 
+    const model = getCurrentModel();
+    const t0 = Date.now();
+    logger.tool.info("Subagente iniciado", { description, model, inheritContext: !!inheritContext, promptLength: prompt.length });
+
     let output = "";
     for await (const chunk of streamResponse({
-      model: getCurrentModel(),
+      model,
       messages,
       tools,
       systemOverride: systemPrompt,
@@ -78,6 +83,7 @@ When NOT to use: for simple single-tool calls — just call the tool directly.`,
       output += chunk;
     }
 
+    logger.tool.info("Subagente concluído", { description, model, durationMs: Date.now() - t0, outputLength: output.length });
     return output || "(subagente completou sem texto de saída)";
   },
 };

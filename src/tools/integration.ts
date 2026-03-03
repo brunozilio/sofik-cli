@@ -5,6 +5,7 @@
 import { getConnector, getAllProviders } from "../integrations/connectors/index.ts";
 import { getCredentials, listConnectedProviders, isConnected } from "../integrations/CredentialStore.ts";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 export const integrationActionTool: ToolDefinition = {
   name: "IntegrationAction",
@@ -37,18 +38,25 @@ export const integrationActionTool: ToolDefinition = {
     const connector = getConnector(provider);
     if (!connector) {
       const available = getAllProviders().join(", ");
+      logger.tool.warn("IntegrationAction provedor desconhecido", { provider, available });
       return `Provedor desconhecido "${provider}". Disponíveis: ${available}`;
     }
 
     const credentials = getCredentials(provider);
     if (!credentials) {
+      logger.tool.warn("IntegrationAction não conectado", { provider, action });
       return `Integração "${provider}" não está conectada. Execute /integration connect ${provider}`;
     }
 
+    const t0 = Date.now();
+    logger.tool.info("IntegrationAction iniciado", { provider, action, paramKeys: Object.keys(params) });
     try {
       const result = await connector.executeAction(action, credentials, params);
-      return typeof result === "string" ? result : JSON.stringify(result, null, 2);
+      const resultStr = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+      logger.tool.info("IntegrationAction concluído", { provider, action, durationMs: Date.now() - t0, resultLength: resultStr.length });
+      return resultStr;
     } catch (err) {
+      logger.tool.error("IntegrationAction erro", { provider, action, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - t0 });
       return `Erro: ${err instanceof Error ? err.message : String(err)}`;
     }
   },

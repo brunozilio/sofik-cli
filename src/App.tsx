@@ -60,6 +60,7 @@ import {
 } from "./db/queries/tasks.ts";
 import { createSlashHandler } from "./lib/slash-handler.ts";
 import { createJobQueueRunner } from "./lib/job-queue-runner.ts";
+import { logger } from "./lib/logger.ts";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,18 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
       messages: [],
     }
   );
+
+  // Register current session ID with logger so all log entries are correlated
+  React.useEffect(() => {
+    logger.setSession(session.current.id);
+    logger.app.info("Sessão de app iniciada", {
+      sessionId: session.current.id,
+      model: session.current.model,
+      cwd: session.current.cwd,
+      resumed: !!initialSession,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [messages, setMessages] = useState<Message[]>(initialSession?.messages ?? []);
   const [turnEvents, setTurnEvents] = useState<TurnEvent[]>([]);
@@ -195,6 +208,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
 
   const runAI = useCallback(
     async (msgs: Message[]): Promise<Message[]> => {
+      logger.app.info("runAI iniciado", { messageCount: msgs.length, model: getCurrentModel() });
       setStatus("thinking");
       setStatusLabel("");
 
@@ -234,13 +248,18 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
                 mode === "plan"
                   ? `${toolName} não está disponível no modo de planejamento. Use EnterPlanMode/ExitPlanMode para planejar primeiro.`
                   : `${toolName} negado pelas regras de permissão em settings.json.`;
+              logger.permission.warn("Ferramenta negada", { tool: toolName, mode, reason });
               throw new Error(reason);
             }
 
             if (decision === "ask") {
+              logger.permission.info("Aguardando aprovação do usuário", { tool: toolName });
               const allowed = await askPermission(toolName, inp);
               setPendingPermission(null);
-              if (!allowed) throw new Error(`Usuário negou permissão para ${toolName}`);
+              if (!allowed) {
+                logger.permission.warn("Usuário negou ferramenta", { tool: toolName });
+                throw new Error(`Usuário negou permissão para ${toolName}`);
+              }
               approve(toolName, inp);
             }
             // "allow" — proceed without asking
@@ -284,17 +303,22 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         session.current.messages = resultMessages;
         saveSession(session.current);
         setTurnEvents([]);
+        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length });
       } catch (err) {
         const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"));
         if (!isAbort) {
           const errMsg = err instanceof Error ? err.message : String(err);
+          logger.app.error("runAI erro", { error: errMsg, isAbort: false });
           setMessages((prev) => [
             ...prev,
             { role: "assistant", content: `Error: ${errMsg}` },
           ]);
-        } else if (fullText.trim()) {
-          // Keep partial response on abort
-          setMessages((prev) => [...prev, { role: "assistant", content: fullText }]);
+        } else {
+          logger.app.info("runAI abortado pelo usuário", { hadPartialResponse: !!fullText.trim() });
+          if (fullText.trim()) {
+            // Keep partial response on abort
+            setMessages((prev) => [...prev, { role: "assistant", content: fullText }]);
+          }
         }
         setTurnEvents([]);
         setPendingPermission(null);
@@ -366,6 +390,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
           if (req.planContent) updateTaskPlan(taskId, req.planContent);
           updateTaskStatus(taskId, "pending");
           changeMode("ask");
+          logger.app.info("Plano aprovado pelo usuário", { taskId, hasPlanContent: !!req.planContent });
           req.resolve(true);
           // Abort the planning conversation; execution starts fresh via queue
           setTimeout(() => {
@@ -374,11 +399,13 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
           }, 10);
         } else {
           changeMode("ask"); // Exit plan mode after approval
+          logger.app.info("Plano aprovado pelo usuário (sem tarefa)");
           req.resolve(true);
         }
       } else if (input === "n" || input === "N") {
         const req = pendingPlanApproval;
         setPendingPlanApproval(null);
+        logger.app.info("Plano rejeitado pelo usuário");
         req.resolve(false);
       }
     },
@@ -468,16 +495,20 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         }
         const connector = getConnector(provider);
         saveCredentials(provider, { apiKey }, connector?.definition.name ?? provider);
+        logger.app.info("Integração conectada", { provider });
         setSystemMessage(`✓ ${connector?.definition.name ?? provider} conectado com sucesso.`);
         return;
       }
 
       if (userInput.startsWith("/")) {
+        logger.app.info("Comando slash recebido", { command: userInput.split(" ")[0], length: userInput.length });
         const handled = await handleSlashCommand(userInput);
         if (handled) return;
         setSystemMessage(`Comando desconhecido: ${userInput}.`);
         return;
       }
+
+      logger.app.info("Mensagem do usuário recebida", { length: userInput.length, messageCount: messages.length });
 
       const newMessages: Message[] = [
         ...messages,
@@ -711,7 +742,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         <Input
           onSubmit={handleSubmit}
           disabled={isThinking}
-          placeholder="Aguardando Claude…"
+          placeholder="Aguardando Sofik…"
           commands={getSlashCommands()}
         />
       )}

@@ -7,6 +7,7 @@ import { spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "./types.ts";
+import { logger } from "./logger.ts";
 
 interface McpServerConfig {
   command: string;
@@ -64,15 +65,28 @@ class McpClient {
 
   private send(method: string, params?: unknown): Promise<unknown> {
     const id = this.nextId++;
+    const start = Date.now();
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, {
+        resolve: (r) => {
+          logger.mcp.debug("MCP resposta recebida", { server: this.name, method, durationMs: Date.now() - start });
+          resolve(r);
+        },
+        reject: (e) => {
+          logger.mcp.error("MCP chamada falhou", { server: this.name, method, error: e.message, durationMs: Date.now() - start });
+          reject(e);
+        },
+      });
       const msg = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
       this.proc.stdin?.write(msg);
+      logger.mcp.debug("MCP chamada enviada", { server: this.name, method });
       // Timeout after 30s
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
-          reject(new Error(`MCP call timed out: ${method}`));
+          const err = new Error(`MCP call timed out: ${method}`);
+          logger.mcp.warn("MCP timeout", { server: this.name, method, durationMs: 30_000 });
+          reject(err);
         }
       }, 30_000);
     });
@@ -148,8 +162,12 @@ export async function loadMcpTools(): Promise<ToolDefinition[]> {
   try {
     config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as McpConfig;
   } catch {
+    logger.mcp.warn("Falha ao ler .mcp.json", { configPath });
     return [];
   }
+
+  const serverNames = Object.keys(config.mcpServers ?? {});
+  logger.mcp.info("Carregando servidores MCP", { servers: serverNames });
 
   const toolDefs: ToolDefinition[] = [];
 
@@ -163,6 +181,7 @@ export async function loadMcpTools(): Promise<ToolDefinition[]> {
       _mcpHealth.set(serverName, true);
 
       const mcpTools = await client.listTools();
+      logger.mcp.info("Servidor MCP inicializado", { server: serverName, toolCount: mcpTools.length, tools: mcpTools.map(t => t.name) });
 
       for (const mcpTool of mcpTools) {
         const toolName = `mcp__${serverName}__${mcpTool.name}`;
@@ -171,13 +190,19 @@ export async function loadMcpTools(): Promise<ToolDefinition[]> {
           description: `[MCP:${serverName}] ${mcpTool.description ?? mcpTool.name}`,
           input_schema: (mcpTool.inputSchema ?? { type: "object", properties: {} }) as ToolDefinition["input_schema"],
           async execute(input) {
-            return await withRetry(() => client.callTool(mcpTool.name, input));
+            const start = Date.now();
+            logger.mcp.info("MCP tool executada", { server: serverName, tool: mcpTool.name });
+            const result = await withRetry(() => client.callTool(mcpTool.name, input));
+            logger.mcp.info("MCP tool concluída", { server: serverName, tool: mcpTool.name, durationMs: Date.now() - start });
+            return result;
           },
         });
       }
     } catch (err) {
       _mcpHealth.set(serverName, false);
-      console.error(`MCP server "${serverName}" failed to initialize: ${err instanceof Error ? err.message : String(err)}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.mcp.error("Servidor MCP falhou ao inicializar", { server: serverName, error: errMsg });
+      console.error(`MCP server "${serverName}" failed to initialize: ${errMsg}`);
     }
   }
 

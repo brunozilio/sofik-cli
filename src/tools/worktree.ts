@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 // ─── State ─────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ export const enterWorktreeTool: ToolDefinition = {
     const cwd = process.cwd();
 
     if (!isGitRepo(cwd)) {
+      logger.tool.warn("EnterWorktree falhou: não é repositório git", { cwd });
       return "Erro: Não está em um repositório git. EnterWorktree requer git.";
     }
 
@@ -100,6 +102,7 @@ export const enterWorktreeTool: ToolDefinition = {
     if (fs.existsSync(worktreePath)) {
       activeWorktreePath = worktreePath;
       activeWorktreeBranch = newBranch;
+      logger.tool.info("EnterWorktree reutilizado", { worktreePath, branch: newBranch });
       return (
         `Worktree já existe em: ${worktreePath}\n` +
         `Branch: ${newBranch}\n` +
@@ -115,11 +118,13 @@ export const enterWorktreeTool: ToolDefinition = {
         encoding: "utf-8",
       });
     } catch (err) {
+      logger.tool.error("EnterWorktree falhou ao criar", { worktreePath, branch: newBranch, error: err instanceof Error ? err.message : String(err) });
       return `Erro ao criar worktree: ${err instanceof Error ? err.message : String(err)}`;
     }
 
     activeWorktreePath = worktreePath;
     activeWorktreeBranch = newBranch;
+    logger.tool.info("EnterWorktree criado", { worktreePath, branch: newBranch, basedOn: currentBranch });
 
     return [
       `Worktree criado com sucesso.`,

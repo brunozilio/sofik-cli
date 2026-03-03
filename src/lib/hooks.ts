@@ -15,6 +15,7 @@ import { fetchWithProxy } from "./fetchWithProxy.ts";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { logger } from "./logger.ts";
 
 type HookType = "bash" | "http";
 
@@ -78,17 +79,23 @@ async function runHook(hook: Hook, context: Record<string, string>): Promise<voi
   if (hook.type === "bash") {
     const env: Record<string, string> = { ...process.env as Record<string, string>, ...context };
     try {
+      logger.app.debug("Hook bash executado", { command: hook.command.slice(0, 100), tool: context.TOOL_NAME });
       execSync(hook.command, { env, stdio: "ignore", timeout: 10_000 });
-    } catch { /* hooks are best-effort */ }
+    } catch (err) {
+      logger.app.warn("Hook bash falhou (best-effort)", { command: hook.command.slice(0, 100), error: err instanceof Error ? err.message : String(err) });
+    }
   } else if (hook.type === "http") {
     try {
+      logger.app.debug("Hook HTTP enviado", { url: hook.url, tool: context.TOOL_NAME });
       await fetchWithProxy(hook.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),
         signal: AbortSignal.timeout(5_000),
       });
-    } catch { /* best-effort */ }
+    } catch (err) {
+      logger.app.warn("Hook HTTP falhou (best-effort)", { url: hook.url, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 }
 
@@ -96,11 +103,13 @@ export async function runPreToolUseHooks(toolName: string, input: unknown): Prom
   const config = getHooks();
   if (!config.PreToolUse) return;
   const ctx = { TOOL_NAME: toolName, TOOL_INPUT: JSON.stringify(input) };
+  let ran = 0;
   for (const entry of config.PreToolUse) {
     if (matchesTool(entry, toolName)) {
-      for (const hook of entry.hooks) await runHook(hook, ctx);
+      for (const hook of entry.hooks) { await runHook(hook, ctx); ran++; }
     }
   }
+  if (ran > 0) logger.app.info("PreToolUseHooks executados", { tool: toolName, hooksRan: ran });
 }
 
 export async function runPostToolUseHooks(
@@ -110,10 +119,12 @@ export async function runPostToolUseHooks(
 ): Promise<void> {
   const config = getHooks();
   if (!config.PostToolUse) return;
-  const ctx = { TOOL_NAME: toolName, TOOL_INPUT: JSON.stringify(input), TOOL_RESULT: result };
+  const ctx = { TOOL_NAME: toolName, TOOL_INPUT: JSON.stringify(input), TOOL_RESULT: result.slice(0, 500) };
+  let ran = 0;
   for (const entry of config.PostToolUse) {
     if (matchesTool(entry, toolName)) {
-      for (const hook of entry.hooks) await runHook(hook, ctx);
+      for (const hook of entry.hooks) { await runHook(hook, ctx); ran++; }
     }
   }
+  if (ran > 0) logger.app.info("PostToolUseHooks executados", { tool: toolName, hooksRan: ran });
 }

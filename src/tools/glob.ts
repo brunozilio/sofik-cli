@@ -1,6 +1,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 export const globTool: ToolDefinition = {
   name: "Glob",
@@ -24,8 +25,9 @@ export const globTool: ToolDefinition = {
     const pattern = input["pattern"] as string;
     const searchPath = path.resolve((input["path"] as string | undefined) ?? process.cwd());
 
+    logger.tool.debug("Glob: buscando arquivos", { pattern, searchPath });
+
     try {
-      // Convert glob pattern to find-compatible: ** → *, use -name for simple patterns
       const safePath = searchPath.replace(/'/g, "'\\''");
       const safePattern = pattern.split("/").pop()!.replace(/'/g, "'\\''");
 
@@ -35,9 +37,11 @@ export const globTool: ToolDefinition = {
       );
 
       const lines = result.trim().split("\n").filter(Boolean);
+      logger.tool.debug("Glob: resultado", { pattern, searchPath, matchCount: lines.length, limited: lines.length > 200 });
       if (lines.length === 0) return "Nenhum arquivo encontrado com o padrão.";
       return lines.slice(0, 200).join("\n");
     } catch (err) {
+      logger.tool.warn("Glob: erro na busca", { pattern, searchPath, error: err instanceof Error ? err.message : String(err) });
       return `Erro: ${err instanceof Error ? err.message : String(err)}`;
     }
   },

@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export const taskCreateTool: ToolDefinition = {
     tasks.set(id, task);
     notify();
 
+    logger.app.info("TaskCreate executado", { taskId: id, subject, status: "pending" });
     return `Tarefa #${id} criada: ${subject}\n\nTarefas atuais:\n${renderList()}`;
   },
 };
@@ -233,6 +235,7 @@ export const taskUpdateTool: ToolDefinition = {
     }
 
     notify();
+    logger.app.info("TaskUpdate executado", { taskId: id, status: task.status, subject: task.subject });
     return `Tarefa #${id} atualizada.\n\nTarefas atuais:\n${renderList()}`;
   },
 };

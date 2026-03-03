@@ -3,6 +3,7 @@ import { COMPACTION_PROMPT } from "./systemPrompt.ts";
 import { getModel } from "./models.ts";
 import { streamResponse as providerStream } from "./providers/index.ts";
 import { getSessionUsage, resetSessionUsage } from "./providers/anthropic.ts";
+import { logger } from "./logger.ts";
 
 export { getSessionUsage, resetSessionUsage };
 
@@ -11,7 +12,11 @@ export { getSessionUsage, resetSessionUsage };
 let currentModel = "claude-opus-4-6";
 
 export function setModel(model: string): void {
+  const prev = currentModel;
   currentModel = model;
+  if (prev !== model) {
+    logger.app.info("Modelo alterado", { from: prev, to: model });
+  }
 }
 
 export function getCurrentModel(): string {
@@ -44,13 +49,26 @@ export function estimateCost(
 export function shouldCompact(messages: Message[]): boolean {
   const model = getModel(currentModel);
   const approxTokens = Math.ceil(JSON.stringify(messages).length / 4);
-  return approxTokens > model.contextWindow * 0.8;
+  const threshold = model.contextWindow * 0.8;
+  if (approxTokens > threshold) {
+    logger.llm.warn("Contexto atingiu limiar de compactação", {
+      model: currentModel,
+      approxTokens,
+      contextWindow: model.contextWindow,
+      threshold: Math.round(threshold),
+    });
+    return true;
+  }
+  return false;
 }
 
 export async function compact(
   _client: unknown,
   messages: Message[]
 ): Promise<Message[]> {
+  logger.llm.info("Compactação de contexto iniciada", { messageCount: messages.length, model: currentModel });
+  const start = Date.now();
+
   const compactionMessages: Message[] = [
     ...messages,
     { role: "user", content: COMPACTION_PROMPT },
@@ -69,6 +87,13 @@ export async function compact(
 
   const match = text.match(/<summary>([\s\S]*?)<\/summary>/);
   const summary = match ? match[1]!.trim() : text;
+
+  logger.llm.info("Compactação de contexto concluída", {
+    model: currentModel,
+    summaryLength: summary.length,
+    durationMs: Date.now() - start,
+    originalMessages: messages.length,
+  });
 
   return [{ role: "user", content: `[Previous conversation compacted]\n\n${summary}` }];
 }

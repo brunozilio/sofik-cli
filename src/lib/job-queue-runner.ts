@@ -12,6 +12,7 @@ import {
 import { getPermissionMode, type PermissionMode } from "./permissions.ts";
 import type { Message, TurnEvent } from "./types.ts";
 import type { Session } from "./session.ts";
+import { logger } from "./logger.ts";
 
 // ─── Deps interface ──────────────────────────────────────────────────────────
 
@@ -45,23 +46,27 @@ export function createJobQueueRunner(deps: JobQueueRunnerDeps) {
   const planningTaskIdRef = { current: null as string | null };
 
   function tryCreateWorktree(taskId: string): { path: string; branch: string } | null {
+    const shortId = taskId.slice(0, 8);
+    const branch = `task/${shortId}`;
+    const worktreePath = path.join(process.cwd(), ".sofik", "worktrees", `task-${shortId}`);
     try {
-      const shortId = taskId.slice(0, 8);
-      const branch = `task/${shortId}`;
-      const worktreePath = path.join(process.cwd(), ".sofik", "worktrees", `task-${shortId}`);
       fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
       _execSync(`git worktree add -b "${branch}" "${worktreePath}"`, {
         cwd: process.cwd(),
         stdio: "pipe",
       });
+      logger.job.info("Worktree criada", { taskId, branch, path: worktreePath });
       return { path: worktreePath, branch };
-    } catch {
+    } catch (err) {
+      logger.job.warn("Falha ao criar worktree", { taskId, error: err instanceof Error ? err.message : String(err) });
       return null;
     }
   }
 
   function startTaskPlanning(context: string) {
     const task = createTask(context, { status: "planning" });
+    logger.job.info("Planejamento de tarefa iniciado", { taskId: task.id, contextPreview: context.slice(0, 200) });
+
     const worktree = tryCreateWorktree(task.id);
     if (worktree) {
       _dbRun(
@@ -98,6 +103,7 @@ export function createJobQueueRunner(deps: JobQueueRunnerDeps) {
   async function runTaskQueue() {
     let nextTask = getNextPendingTask();
     if (!nextTask) {
+      logger.job.info("Fila de tarefas vazia");
       setSystemMessage("Nenhuma tarefa pendente na fila.");
       return;
     }
@@ -105,10 +111,12 @@ export function createJobQueueRunner(deps: JobQueueRunnerDeps) {
     // Switch to auto mode for unattended execution
     const prevMode = getPermissionMode();
     changeMode("auto");
+    logger.job.info("Execução da fila iniciada", { previousMode: prevMode });
 
     try {
       while (nextTask) {
         const task = nextTask;
+        logger.job.info("Tarefa iniciada", { taskId: task.id, contextPreview: task.context.slice(0, 200) });
         updateTaskStatus(task.id, "running", { started_at: new Date().toISOString() });
         currentTaskIdRef.current = task.id;
 
@@ -142,6 +150,7 @@ ${task.context}`,
 
         await runAI(taskMessages);
         updateTaskStatus(task.id, "done", { completed_at: new Date().toISOString() });
+        logger.job.info("Tarefa concluída", { taskId: task.id });
         currentTaskIdRef.current = null;
 
         nextTask = getNextPendingTask();
@@ -149,6 +158,7 @@ ${task.context}`,
     } finally {
       changeMode(prevMode as Parameters<typeof changeMode>[0]);
       currentTaskIdRef.current = null;
+      logger.job.info("Execução da fila encerrada", { restoredMode: prevMode });
     }
 
     setSystemMessage("✓ Todas as tarefas da fila foram concluídas.");

@@ -9,6 +9,7 @@ import { createServer } from "http";
 import { spawn } from "child_process";
 import { createHash, randomBytes } from "crypto";
 import { fetchWithProxy } from "./fetchWithProxy.ts";
+import { logger } from "./logger.ts";
 
 // ── Constants (from decompiled source) ───────────────────────────────────────
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -26,7 +27,7 @@ const SCOPES = [
 const REDIRECT_PORT = 54321;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 
-const TOKEN_PATH = path.join(os.homedir(), ".sofik", "oauth-token.json");
+const TOKEN_PATH = path.join(os.homedir(), ".sofik", "anthropic-token.json");
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface OAuthToken {
@@ -49,7 +50,9 @@ function generateCodeChallenge(verifier: string): string {
 export function loadToken(): OAuthToken | null {
   try {
     const raw = fs.readFileSync(TOKEN_PATH, "utf-8");
-    return JSON.parse(raw) as OAuthToken;
+    const token = JSON.parse(raw) as OAuthToken;
+    logger.auth.debug("Token OAuth carregado do disco");
+    return token;
   } catch {
     return null;
   }
@@ -58,6 +61,7 @@ export function loadToken(): OAuthToken | null {
 function saveToken(token: OAuthToken): void {
   fs.mkdirSync(path.dirname(TOKEN_PATH), { recursive: true });
   fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2), "utf-8");
+  logger.auth.info("Token OAuth salvo", { expiresAt: token.expires_at ? new Date(token.expires_at).toISOString() : null });
 }
 
 // ── SSH detection ─────────────────────────────────────────────────────────────
@@ -369,6 +373,8 @@ async function exchangeCode(code: string, codeVerifier: string, state: string): 
 export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
   if (!token.refresh_token) throw new Error("No refresh token available");
 
+  logger.auth.info("Renovando token OAuth");
+
   const res = await fetchWithProxy(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -380,7 +386,10 @@ export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
     }),
   });
 
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.statusText}`);
+  if (!res.ok) {
+    logger.auth.error("Falha ao renovar token", { status: res.status, statusText: res.statusText });
+    throw new Error(`Token refresh failed: ${res.statusText}`);
+  }
 
   const data = await res.json() as {
     access_token: string;
@@ -397,6 +406,7 @@ export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
   };
 
   saveToken(newToken);
+  logger.auth.info("Token OAuth renovado com sucesso");
   return newToken;
 }
 
@@ -407,7 +417,7 @@ export async function login(onUrl?: (url: string, ssh: boolean) => void): Promis
   const state = randomBytes(16).toString("hex");
 
   const params = new URLSearchParams({
-    code: "true",                       // required by Anthropic
+    code: "true",
     client_id: CLIENT_ID,
     response_type: "code",
     redirect_uri: REDIRECT_URI,
@@ -420,6 +430,8 @@ export async function login(onUrl?: (url: string, ssh: boolean) => void): Promis
   const authUrl = `${AUTHORIZE_URL}?${params}`;
   const ssh = isSSH();
 
+  logger.auth.info("Fluxo OAuth iniciado", { ssh, scopes: SCOPES });
+
   if (onUrl) {
     onUrl(authUrl, ssh);
   }
@@ -429,8 +441,10 @@ export async function login(onUrl?: (url: string, ssh: boolean) => void): Promis
   }
 
   const code = await waitForCallback();
+  logger.auth.info("Código de autorização OAuth recebido");
 
   const token = await exchangeCode(code, codeVerifier, state);
+  logger.auth.info("Login OAuth concluído com sucesso");
 
   saveToken(token);
 
@@ -556,6 +570,7 @@ export async function loginCopilot(
 export function logout(): void {
   try {
     fs.unlinkSync(TOKEN_PATH);
+    logger.auth.info("Logout realizado — token removido");
   } catch { /* file may not exist */ }
 }
 
@@ -570,15 +585,23 @@ export function isLoggedIn(): boolean {
 
 export async function getValidToken(): Promise<OAuthToken | null> {
   const token = loadToken();
-  if (!token) return null;
+  if (!token) {
+    logger.auth.debug("Nenhum token encontrado");
+    return null;
+  }
 
   // Still valid
-  if (!token.expires_at || Date.now() < token.expires_at - 60_000) return token;
+  if (!token.expires_at || Date.now() < token.expires_at - 60_000) {
+    return token;
+  }
 
   // Try to refresh
+  logger.auth.info("Token expirado, tentando renovar");
   try {
-    return await refreshToken(token);
-  } catch {
+    const refreshed = await refreshToken(token);
+    return refreshed;
+  } catch (err) {
+    logger.auth.error("Falha ao renovar token expirado", { error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }

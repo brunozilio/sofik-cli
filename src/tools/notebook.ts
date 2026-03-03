@@ -1,6 +1,7 @@
 import fs from "fs";
 import path, { resolve } from "path";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 interface NotebookCell {
   cell_type: "code" | "markdown" | "raw";
@@ -65,15 +66,20 @@ export const notebookEditTool: ToolDefinition = {
     const newSource = input["new_source"] as string | undefined;
     const cellType = (input["cell_type"] as "code" | "markdown" | undefined) ?? "code";
 
+    const t0 = Date.now();
+    logger.tool.info("NotebookEdit iniciado", { nbPath, editMode, cellNumber });
+
     let nb: Notebook;
     try {
       const raw = fs.readFileSync(nbPath, "utf-8");
       nb = JSON.parse(raw) as Notebook;
     } catch (err) {
+      logger.tool.error("NotebookEdit falhou ao ler", { nbPath, error: err instanceof Error ? err.message : String(err) });
       return `Error reading notebook: ${err instanceof Error ? err.message : String(err)}`;
     }
 
     if (editMode === "read") {
+      logger.tool.info("NotebookEdit leitura concluída", { nbPath, cellCount: nb.cells.length, durationMs: Date.now() - t0 });
       return nb.cells
         .map((c, i) => {
           const src = cellSource(c);
@@ -120,8 +126,10 @@ export const notebookEditTool: ToolDefinition = {
 
     try {
       fs.writeFileSync(nbPath, JSON.stringify(nb, null, 1), "utf-8");
+      logger.tool.info("NotebookEdit concluído", { nbPath, editMode, cellNumber, cellCount: nb.cells.length, durationMs: Date.now() - t0 });
       return `Notebook atualizado: ${nbPath} (${nb.cells.length} células)`;
     } catch (err) {
+      logger.tool.error("NotebookEdit falhou ao escrever", { nbPath, error: err instanceof Error ? err.message : String(err) });
       return `Erro ao escrever notebook: ${err instanceof Error ? err.message : String(err)}`;
     }
   },

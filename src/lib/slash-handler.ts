@@ -7,6 +7,7 @@ import { getMcpStatus } from "./mcp.ts";
 import { login, logout, loginCopilot } from "./oauth.ts";
 import { type PermissionMode } from "./permissions.ts";
 import { resetSessionUsage } from "./anthropic.ts";
+import { logger } from "./logger.ts";
 import {
   saveCredentials,
   listConnectedProviders,
@@ -73,6 +74,8 @@ export function createSlashHandler(deps: SlashHandlerDeps) {
     const parts = cmd.slice(1).trim().split(/\s+/);
     const command = parts[0]?.toLowerCase() ?? "";
 
+    logger.app.info("Slash command recebido", { command, args: parts.slice(1) });
+
     // Check custom commands first
     const customCmds = getSlashCommands().filter((c) => c.isCustom);
     const customCmd = customCmds.find((c) => c.name === command);
@@ -126,21 +129,20 @@ export function createSlashHandler(deps: SlashHandlerDeps) {
         if (provider === "anthropic") {
           setSystemMessage("Iniciando autenticação Anthropic…");
           try {
-            const token = await login((url, ssh) => {
+            await login((url, ssh) => {
               if (ssh) {
                 setSystemMessage(
-                  `Sessão SSH detectada — abra o link abaixo no seu navegador local:\n\n` +
+                  `abra o link abaixo no seu navegador:\n\n` +
                   `${url}\n\n` +
-                  `Para que o callback funcione, execute no seu computador local antes de abrir o link:\n` +
-                  `  ssh -L 54321:localhost:54321 SEU_SERVIDOR\n\n` +
                   `Aguardando autorização…`
                 );
+                Bun.write("/dev/clipboard", url).then(() => {}).catch(() => {});
               } else {
                 setSystemMessage(`Navegador aberto. Aguardando autorização…\n\nSe não abrir automaticamente:\n${url}`);
               }
             });
             setSystemMessage(
-              `Login realizado com sucesso.\n  Escopos: ${token.scope ?? "user:profile user:inference"}`
+              `Login realizado com sucesso.}`
             );
           } catch (err) {
             setSystemMessage(
@@ -150,12 +152,14 @@ export function createSlashHandler(deps: SlashHandlerDeps) {
         } else if (provider === "copilot") {
           setSystemMessage("Aguardando autorização do GitHub…");
           try {
-            const token = await loginCopilot((userCode, uri) => {
+            await loginCopilot((userCode, uri) => {
               setSystemMessage(
                 `Acesse: ${uri}\nDigite o código: ${userCode}\n\nAguardando autorização…`
               );
+
+              Bun.write("/dev/clipboard", uri).then(() => {}).catch(() => {});
             });
-            setSystemMessage(`Login realizado no GitHub Copilot.\n  Escopo: ${token.scope}`);
+            setSystemMessage(`Login realizado no GitHub Copilot.`);
           } catch (err) {
             setSystemMessage(
               `Falha no login do GitHub: ${err instanceof Error ? err.message : String(err)}`

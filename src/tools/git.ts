@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 type GitAction = "status" | "diff" | "log" | "commit" | "push" | "pull" | "branch" | "stash" | "reset";
 
@@ -75,10 +76,21 @@ Supported actions:
   },
   async execute(input) {
     const action = input["action"] as GitAction;
+    const start = Date.now();
+    logger.tool.info("Git: executando ação", { action, cwd: process.cwd() });
+
+    const logResult = (ok: boolean, extra?: Record<string, unknown>) => {
+      if (ok) {
+        logger.tool.info("Git: ação concluída", { action, durationMs: Date.now() - start, ...extra });
+      } else {
+        logger.tool.warn("Git: ação falhou", { action, durationMs: Date.now() - start, ...extra });
+      }
+    };
 
     switch (action) {
       case "status": {
         const { stdout, stderr, exitCode } = await runGit(["status", "--short", "--branch"]);
+        logResult(exitCode === 0, { exitCode });
         if (exitCode !== 0) return `Error: ${stderr}`;
         return stdout || "Nothing to report — working tree clean";
       }
@@ -112,13 +124,14 @@ Supported actions:
         if (!message) return "Error: commit message required";
         const files = input["files"] as string[] | undefined;
 
-        // Stage files if specified, otherwise stage all tracked changes
         if (files && files.length > 0) {
           const { exitCode, stderr } = await runGit(["add", ...files]);
-          if (exitCode !== 0) return `Error staging files: ${stderr}`;
+          if (exitCode !== 0) { logResult(false, { exitCode, phase: "stage" }); return `Error staging files: ${stderr}`; }
+          logger.tool.info("Git: arquivos staged", { files });
         }
 
         const { stdout, stderr, exitCode } = await runGit(["commit", "-m", message]);
+        logResult(exitCode === 0, { exitCode, messagePreview: message.slice(0, 80) });
         if (exitCode !== 0) return `Error: ${stderr}`;
         return stdout.trim();
       }

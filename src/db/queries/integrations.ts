@@ -1,4 +1,5 @@
 import { dbQuery, dbQueryOne, dbRun, randomUUID } from "../index.ts";
+import { logger } from "../../lib/logger.ts";
 
 export interface DbIntegration {
   id: string;
@@ -21,6 +22,7 @@ export function upsertIntegration(
       "UPDATE integrations SET name = ?, credentials_encrypted = ?, updated_at = datetime('now') WHERE provider = ?",
       [name, credentialsEncrypted, provider]
     );
+    logger.db.info("Integração atualizada", { provider, name });
     return getIntegrationByProvider(provider)!;
   }
   const id = randomUUID();
@@ -28,6 +30,7 @@ export function upsertIntegration(
     "INSERT INTO integrations (id, provider, name, credentials_encrypted) VALUES (?, ?, ?, ?)",
     [id, provider, name, credentialsEncrypted]
   );
+  logger.db.info("Integração criada", { provider, name, id });
   return getIntegrationByProvider(provider)!;
 }
 
@@ -46,4 +49,5 @@ export function getAllIntegrations(): DbIntegration[] {
 
 export function deleteIntegration(provider: string): void {
   dbRun("DELETE FROM integrations WHERE provider = ?", [provider]);
+  logger.db.info("Integração removida", { provider });
 }

@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../lib/types.ts";
 import { fetchWithProxy } from "../lib/fetchWithProxy.ts";
+import { logger } from "../lib/logger.ts";
 
 const MAX_RESULTS = 10;
 
@@ -94,11 +95,17 @@ export const webSearchTool: ToolDefinition = {
 
     let results: SearchResult[];
     let provider = "DuckDuckGo";
+    const t0 = Date.now();
+    logger.tool.info("WebSearch iniciado", { query, provider, allowedDomains, blockedDomains });
+
     try {
         results = await searchDuckDuckGo(query, allowedDomains, blockedDomains);
     } catch (err) {
+      logger.tool.warn("WebSearch falhou", { query, provider, error: err instanceof Error ? err.message : String(err) });
       return `Error searching: ${err instanceof Error ? err.message : String(err)}`;
     }
+
+    logger.tool.info("WebSearch concluído", { query, provider, resultCount: results.length, durationMs: Date.now() - t0 });
 
     if (results.length === 0) {
       return `No results found for: "${query}"`;

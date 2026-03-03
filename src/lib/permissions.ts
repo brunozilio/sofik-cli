@@ -1,5 +1,6 @@
 import { loadSettings } from "./settings.ts";
 import type { PermissionRule } from "./settings.ts";
+import { logger } from "./logger.ts";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -141,7 +142,11 @@ export function detectDangerousCommand(cmd: string): string | null {
 // ─── Public API ────────────────────────────────────────────────────────────
 
 export function setPermissionMode(mode: PermissionMode): void {
+  const prev = permissionMode;
   permissionMode = mode;
+  if (prev !== mode) {
+    logger.permission.info("Modo de permissão alterado", { from: prev, to: mode });
+  }
 }
 
 export function getPermissionMode(): PermissionMode {
@@ -162,38 +167,57 @@ export function checkPermission(
   toolName: string,
   input: Record<string, unknown>,
 ): PermissionDecision {
+  let decision: PermissionDecision;
+
   // 1. Plan mode: block all mutations
   if (permissionMode === "plan") {
-    if (MUTATING_TOOLS.has(toolName)) return "deny";
-    return "allow";
+    decision = MUTATING_TOOLS.has(toolName) ? "deny" : "allow";
+    logger.permission.info("Permissão verificada", { tool: toolName, mode: permissionMode, decision });
+    return decision;
   }
 
   // 2. Full auto: allow everything
   if (permissionMode === "auto" || permissionMode === "bypassPermissions") {
+    logger.permission.info("Permissão verificada", { tool: toolName, mode: permissionMode, decision: "allow" });
     return "allow";
   }
 
   // 3. Evaluate settings rules (from settings.json at all 3 levels)
   const settings = loadSettings();
   const ruleDecision = evaluateRules(settings.permissions ?? [], toolName, input);
-  if (ruleDecision !== null) return ruleDecision;
+  if (ruleDecision !== null) {
+    logger.permission.info("Permissão por regra de settings", { tool: toolName, decision: ruleDecision });
+    return ruleDecision;
+  }
 
   // 4. acceptEdits: auto-approve file edits/writes, ask for Bash
   if (permissionMode === "acceptEdits") {
     if (toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit" || toolName === "NotebookEdit") {
+      logger.permission.info("Permissão verificada", { tool: toolName, mode: permissionMode, decision: "allow" });
       return "allow";
     }
-    if (!DANGEROUS_TOOLS.has(toolName)) return "allow";
+    if (!DANGEROUS_TOOLS.has(toolName)) {
+      logger.permission.info("Permissão verificada", { tool: toolName, mode: permissionMode, decision: "allow" });
+      return "allow";
+    }
+    logger.permission.info("Permissão verificada", { tool: toolName, mode: permissionMode, decision: "ask" });
     return "ask";
   }
 
   // 5. Default ask mode
-  if (!DANGEROUS_TOOLS.has(toolName)) return "allow";
+  if (!DANGEROUS_TOOLS.has(toolName)) {
+    logger.permission.info("Permissão verificada", { tool: toolName, mode: permissionMode, decision: "allow" });
+    return "allow";
+  }
 
   // Check session allow-list (user already said "yes" to this specific call)
   const key = `${toolName}:${JSON.stringify(input).slice(0, 100)}`;
-  if (sessionAllowed.has(key)) return "allow";
+  if (sessionAllowed.has(key)) {
+    logger.permission.info("Permissão verificada (lista de sessão)", { tool: toolName, decision: "allow" });
+    return "allow";
+  }
 
+  logger.permission.warn("Permissão requer confirmação", { tool: toolName, mode: permissionMode });
   return "ask";
 }
 
@@ -209,6 +233,7 @@ export function needsConfirmation(
 export function approve(toolName: string, input: Record<string, unknown>): void {
   const key = `${toolName}:${JSON.stringify(input).slice(0, 100)}`;
   sessionAllowed.add(key);
+  logger.permission.info("Usuário aprovou ferramenta", { tool: toolName, inputPreview: JSON.stringify(input).slice(0, 100) });
 }
 
 /** Switch to auto-approve mode (equivalent to --auto flag) */

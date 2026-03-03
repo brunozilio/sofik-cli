@@ -445,3 +445,34 @@ describe("onTasksChange()", () => {
     expect(callCount).toBe(0);
   });
 });
+
+// ─── TaskGet formatted output ─────────────────────────────────────────────────
+
+describe("TaskGet formatted output", () => {
+  test("taskGetTool shows 'Metadados:' section when task has metadata", async () => {
+    const id = await createTask("task com metadados");
+    await taskUpdateTool.execute({
+      taskId: id,
+      metadata: { priority: "high", ticket: 42 },
+    });
+    const result = String(await taskGetTool.execute({ taskId: id }));
+    expect(result).toContain("Metadados:");
+    expect(result).toContain("priority");
+    expect(result).toContain('"high"');
+    expect(result).toContain("ticket");
+    expect(result).toContain("42");
+  });
+
+  test("taskGetTool omits 'Metadados:' section when task has no metadata", async () => {
+    const id = await createTask("task sem metadados");
+    const result = String(await taskGetTool.execute({ taskId: id }));
+    expect(result).not.toContain("Metadados:");
+  });
+
+  test("taskGetTool omits 'Metadados:' section when metadata is empty object", async () => {
+    const id = await createTask("task metadata vazio");
+    await taskUpdateTool.execute({ taskId: id, metadata: {} });
+    const result = String(await taskGetTool.execute({ taskId: id }));
+    expect(result).not.toContain("Metadados:");
+  });
+});

@@ -1,5 +1,7 @@
-import { test, expect, describe } from "bun:test";
-import { validateSettings } from "./settings.ts";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import { validateSettings, saveProjectSettings, loadSettings, invalidateSettingsCache } from "./settings.ts";
 import type { Settings, PermissionRule } from "./settings.ts";
 
 // ─── validateSettings — valid inputs ────────────────────────────────────────
@@ -255,5 +257,170 @@ describe("settings merge semantics (manual layer composition)", () => {
     const merged: Settings = { ...base, ...override };
     expect(merged.disableSandbox).toBe(true);
     expect(validateSettings(merged)).toEqual([]);
+  });
+});
+
+// ─── validateSettings — proxy settings ───────────────────────────────────────
+
+describe("validateSettings — proxy settings", () => {
+  test("valid proxy with url is accepted", () => {
+    const s: Settings = { proxy: { url: "http://proxy.corp.example.com:8080" } };
+    expect(validateSettings(s)).toEqual([]);
+  });
+
+  test("proxy with no url is accepted", () => {
+    const s: Settings = { proxy: {} };
+    expect(validateSettings(s)).toEqual([]);
+  });
+
+  test("proxy.url that is not a valid URL produces an error", () => {
+    const s: Settings = { proxy: { url: "not-a-url" } };
+    const errors = validateSettings(s);
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain("proxy.url is not a valid URL");
+    expect(errors[0]).toContain("not-a-url");
+  });
+
+  test("proxy.url that is a non-string produces a type error (and an invalid-URL error)", () => {
+    const s = { proxy: { url: 1234 } } as unknown as Settings;
+    const errors = validateSettings(s);
+    // Produces 2 errors: type check fails + URL parse also fails on a number
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const combined = errors.join(" ");
+    expect(combined).toContain("proxy.url must be a string");
+  });
+
+  test("valid proxy with noProxy array is accepted", () => {
+    const s: Settings = { proxy: { noProxy: ["localhost", "127.0.0.1"] } };
+    expect(validateSettings(s)).toEqual([]);
+  });
+
+  test("proxy.noProxy that is not an array produces an error", () => {
+    const s = { proxy: { noProxy: "localhost" } } as unknown as Settings;
+    const errors = validateSettings(s);
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain("proxy.noProxy must be an array");
+  });
+
+  test("proxy.noProxy array with non-string item produces an error", () => {
+    const s = { proxy: { noProxy: ["localhost", 42] } } as unknown as Settings;
+    const errors = validateSettings(s);
+    expect(errors.length).toBe(1);
+    expect(errors[0]).toContain("proxy.noProxy[1] must be a string");
+  });
+
+  test("proxy.noProxy array with multiple non-string items produces multiple errors", () => {
+    const s = { proxy: { noProxy: [1, 2] } } as unknown as Settings;
+    const errors = validateSettings(s);
+    expect(errors.length).toBe(2);
+    expect(errors[0]).toContain("proxy.noProxy[0]");
+    expect(errors[1]).toContain("proxy.noProxy[1]");
+  });
+
+  test("full valid proxy configuration is accepted", () => {
+    const s: Settings = {
+      proxy: {
+        url: "https://proxy.example.com:3128",
+        noProxy: ["localhost", "*.internal.corp"],
+      },
+    };
+    expect(validateSettings(s)).toEqual([]);
+  });
+});
+
+// ─── saveProjectSettings + loadSettings + invalidateSettingsCache ─────────────
+
+describe("saveProjectSettings() and loadSettings()", () => {
+  const SETTINGS_DIR = path.join(process.cwd(), ".sofik");
+  const SETTINGS_FILE = path.join(SETTINGS_DIR, "settings.json");
+  let _originalSettings: string | null = null;
+
+  beforeEach(() => {
+    try {
+      _originalSettings = fs.readFileSync(SETTINGS_FILE, "utf-8");
+    } catch {
+      _originalSettings = null;
+    }
+    invalidateSettingsCache();
+  });
+
+  afterEach(() => {
+    if (_originalSettings !== null) {
+      fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+      fs.writeFileSync(SETTINGS_FILE, _originalSettings, "utf-8");
+    } else {
+      try { fs.unlinkSync(SETTINGS_FILE); } catch {}
+    }
+    invalidateSettingsCache();
+  });
+
+  test("saveProjectSettings() creates the .sofik/settings.json file", () => {
+    // Remove if present so we test creation from scratch
+    try { fs.unlinkSync(SETTINGS_FILE); } catch {}
+    saveProjectSettings({ language: "Portuguese" });
+    expect(fs.existsSync(SETTINGS_FILE)).toBe(true);
+  });
+
+  test("saveProjectSettings() writes the provided settings to disk", () => {
+    saveProjectSettings({ language: "English", brevity: "strict" });
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8")) as Settings;
+    expect(raw.language).toBe("English");
+    expect(raw.brevity).toBe("strict");
+  });
+
+  test("saveProjectSettings() merges with existing settings (does not erase other keys)", () => {
+    // Write initial state
+    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ model: "claude-opus-4-6" }), "utf-8");
+    saveProjectSettings({ language: "Spanish" });
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8")) as Settings;
+    expect(raw.model).toBe("claude-opus-4-6");
+    expect(raw.language).toBe("Spanish");
+  });
+
+  test("saveProjectSettings() invalidates the cache (loadSettings re-reads disk)", () => {
+    saveProjectSettings({ language: "French" });
+    // The cache was invalidated by saveProjectSettings; loadSettings should return fresh data
+    const loaded = loadSettings();
+    expect(loaded.language).toBe("French");
+  });
+
+  test("invalidateSettingsCache() forces loadSettings to re-read disk", () => {
+    saveProjectSettings({ brevity: "focused" });
+    const first = loadSettings();
+    // Write new value directly to disk and invalidate
+    const existing = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8")) as Settings;
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ ...existing, brevity: "polished" }), "utf-8");
+    invalidateSettingsCache();
+    const second = loadSettings(true);
+    expect(second.brevity).toBe("polished");
+  });
+
+  test("loadSettings() returns cached value when files have not changed", () => {
+    saveProjectSettings({ language: "Japanese" });
+    const first = loadSettings();
+    const second = loadSettings(); // should return cache
+    expect(first).toBe(second); // same object reference == cache hit
+  });
+
+  test("loadSettings(reload=true) always re-reads disk", () => {
+    saveProjectSettings({ language: "Korean" });
+    const first = loadSettings();
+    const second = loadSettings(true); // force reload
+    expect(second.language).toBe("Korean");
+  });
+
+  test("saveProjectSettings + loadSettings handles additionalDirectories", () => {
+    saveProjectSettings({ additionalDirectories: ["/tmp/extra", "/opt/data"] });
+    const loaded = loadSettings();
+    expect(loaded.additionalDirectories).toContain("/tmp/extra");
+    expect(loaded.additionalDirectories).toContain("/opt/data");
+  });
+
+  test("saveProjectSettings + loadSettings handles memoryExcludes", () => {
+    saveProjectSettings({ memoryExcludes: ["*.secret", "credentials.*"] });
+    const loaded = loadSettings();
+    expect(loaded.memoryExcludes).toContain("*.secret");
+    expect(loaded.memoryExcludes).toContain("credentials.*");
   });
 });

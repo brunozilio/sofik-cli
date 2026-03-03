@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 const TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 30_000;
@@ -71,8 +72,17 @@ While the Bash tool can do similar things, it's better to use the built-in tools
   },
   async execute(input) {
     const command = input["command"] as string;
+    const description = input["description"] as string | undefined;
     const timeout = (input["timeout"] as number | undefined) ?? TIMEOUT_MS;
     const commandWithCwd = `${command}\necho "__CWD__=$(pwd)"`;
+
+    const start = Date.now();
+    logger.tool.info("Bash: iniciando execução", {
+      command: command.slice(0, 500),
+      description,
+      cwd: shellCwd,
+      timeoutMs: timeout,
+    });
 
     return new Promise((resolve) => {
       let stdout = "";
@@ -96,6 +106,7 @@ While the Bash tool can do similar things, it's better to use the built-in tools
       proc.on("close", (code) => {
         clearTimeout(timer);
         if (timedOut) {
+          logger.tool.warn("Bash: timeout", { command: command.slice(0, 200), timeoutMs: timeout, durationMs: Date.now() - start });
           resolve(`Erro: Comando expirou após ${timeout}ms\n${stdout}`);
           return;
         }
@@ -114,11 +125,23 @@ While the Bash tool can do similar things, it's better to use the built-in tools
         if (code !== 0) {
           result = `Código de saída: ${code}\n${result}`;
         }
+
+        const truncated = result.length > MAX_OUTPUT_CHARS;
+        logger.tool.info("Bash: concluído", {
+          command: command.slice(0, 200),
+          exitCode: code,
+          durationMs: Date.now() - start,
+          outputLength: result.length,
+          truncated,
+          newCwd: shellCwd,
+        });
+
         resolve(truncate(result));
       });
 
       proc.on("error", (err) => {
         clearTimeout(timer);
+        logger.tool.error("Bash: erro de processo", { command: command.slice(0, 200), error: err.message, durationMs: Date.now() - start });
         resolve(`Erro: ${err.message}`);
       });
     });

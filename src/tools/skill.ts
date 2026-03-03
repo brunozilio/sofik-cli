@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../lib/types.ts";
 import { getSkill, loadSkills } from "../lib/skills.ts";
+import { logger } from "../lib/logger.ts";
 
 export const skillTool: ToolDefinition = {
   name: "Skill",
@@ -29,6 +30,7 @@ export const skillTool: ToolDefinition = {
 
     if (skillName === "list") {
       const skills = loadSkills();
+      logger.tool.info("Skill list solicitado", { count: skills.length });
       if (skills.length === 0) {
         return (
           "Nenhuma habilidade encontrada. Crie arquivos .md em .sofik/skills/ (projeto) ou " +
@@ -45,11 +47,14 @@ export const skillTool: ToolDefinition = {
     if (!skill) {
       const skills = loadSkills();
       const names = skills.map((s) => s.name).join(", ");
+      logger.tool.warn("Skill não encontrada", { skillName, available: names });
       return (
         `Habilidade '${skillName}' não encontrada.\n` +
         (names ? `Habilidades disponíveis: ${names}` : "Nenhuma habilidade está definida no momento.")
       );
     }
+
+    logger.tool.info("Skill executada", { skillName, source: skill.source, hasArgs: !!args, contentLength: skill.content.length });
 
     // Return the skill content — the AI will use this as context/instructions
     const content = args ? `${skill.content}\n\n${args}` : skill.content;

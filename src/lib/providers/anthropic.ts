@@ -5,6 +5,7 @@ import { MODELS } from "../models.ts";
 import { buildSystemPrompt } from "../systemPrompt.ts";
 import { getValidToken } from "../oauth.ts";
 import { fetchWithProxy } from "../fetchWithProxy.ts";
+import { logger } from "../logger.ts";
 
 const BASE_URL = "https://api.anthropic.com/v1";
 
@@ -14,8 +15,13 @@ const PARALLEL_SAFE_TOOLS = new Set([
 ]);
 
 async function resolveToken(): Promise<string> {
+  logger.auth.info("Resolvendo token de acesso");
   const token = await getValidToken();
-  if (token) return token.access_token;
+  if (token) {
+    logger.auth.info("Token de acesso resolvido com sucesso");
+    return token.access_token;
+  }
+  logger.auth.error("Token não disponível — usuário não autenticado");
   throw new Error("Não autenticado. Use /login dentro do chat para entrar.");
 }
 
@@ -97,11 +103,21 @@ export class AnthropicProvider implements LLMProvider {
 
     const apiMessages: unknown[] = messages.map(toApiParam);
 
+    let turnIndex = 0;
     while (true) {
+      turnIndex++;
       const contentBlocks: LocalContentBlock[] = [];
 
       if (signal?.aborted) return;
 
+      logger.llm.info("Requisição LLM iniciada", {
+        model,
+        turn: turnIndex,
+        messageCount: apiMessages.length,
+        toolCount: apiTools.length,
+      });
+
+      const reqStart = Date.now();
       const response = await fetchWithProxy(`${BASE_URL}/messages`, {
         method: "POST",
         headers,
@@ -118,8 +134,11 @@ export class AnthropicProvider implements LLMProvider {
 
       if (!response.ok) {
         const error = await response.text();
+        logger.llm.error("Requisição LLM falhou", { model, status: response.status, error: error.slice(0, 500) });
         throw new Error(`${response.status} ${error}`);
       }
+
+      logger.llm.info("Resposta LLM recebida — iniciando stream", { model, status: response.status, durationMs: Date.now() - reqStart });
 
       let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
       let stopReason = "end_turn";
@@ -129,7 +148,15 @@ export class AnthropicProvider implements LLMProvider {
 
         if (type === "message_start") {
           const usage = (event.message as { usage?: RawUsage })?.usage;
-          if (usage) addUsage(usage);
+          if (usage) {
+            addUsage(usage);
+            logger.llm.info("Uso de tokens (início)", {
+              model,
+              inputTokens: usage.input_tokens ?? 0,
+              cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+              cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+            });
+          }
         } else if (type === "content_block_start") {
           const block = event.content_block as { type: string; id?: string; name?: string };
           if (block.type === "text") {
@@ -137,6 +164,7 @@ export class AnthropicProvider implements LLMProvider {
           } else if (block.type === "tool_use") {
             currentToolUse = { id: block.id!, name: block.name!, inputJson: "" };
             contentBlocks.push({ type: "tool_use", id: block.id!, name: block.name!, input: {} });
+            logger.llm.info("LLM invocando ferramenta", { tool: block.name, id: block.id });
           }
         } else if (type === "content_block_delta") {
           const delta = event.delta as { type: string; text?: string; partial_json?: string };
@@ -161,7 +189,14 @@ export class AnthropicProvider implements LLMProvider {
           const delta = event.delta as { stop_reason?: string };
           stopReason = delta.stop_reason ?? "end_turn";
           const usage = (event as { usage?: RawUsage }).usage;
-          if (usage) addUsage(usage);
+          if (usage) {
+            addUsage(usage);
+            logger.llm.info("Uso de tokens (fim do turno)", {
+              model,
+              stopReason,
+              outputTokens: usage.output_tokens ?? 0,
+            });
+          }
         }
       }
 
@@ -170,6 +205,8 @@ export class AnthropicProvider implements LLMProvider {
       const toolUses = contentBlocks.filter(
         (b): b is Extract<LocalContentBlock, { type: "tool_use" }> => b.type === "tool_use"
       );
+
+      logger.llm.info("Turno LLM concluído", { model, stopReason, toolUseCount: toolUses.length, turn: turnIndex });
 
       if (stopReason !== "tool_use" || toolUses.length === 0) break;
 
@@ -190,15 +227,34 @@ export class AnthropicProvider implements LLMProvider {
         if (!tool) {
           resultContent = `Error: Unknown tool "${toolUse.name}"`;
           isError = true;
+          logger.tool.error("Ferramenta desconhecida", { tool: toolUse.name, id: toolUse.id });
         } else {
+          const toolStart = Date.now();
+          logger.tool.info("Executando ferramenta", {
+            tool: toolUse.name,
+            id: toolUse.id,
+            input: JSON.stringify(toolUse.input).slice(0, 300),
+          });
           try {
             const { runPreToolUseHooks, runPostToolUseHooks } = await import("../hooks.ts");
             await runPreToolUseHooks(toolUse.name, toolUse.input);
             resultContent = await tool.execute(toolUse.input as Record<string, unknown>);
             await runPostToolUseHooks(toolUse.name, toolUse.input, resultContent);
+            logger.tool.info("Ferramenta concluída", {
+              tool: toolUse.name,
+              id: toolUse.id,
+              durationMs: Date.now() - toolStart,
+              resultLength: resultContent.length,
+            });
           } catch (err) {
             resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
             isError = true;
+            logger.tool.error("Ferramenta falhou", {
+              tool: toolUse.name,
+              id: toolUse.id,
+              durationMs: Date.now() - toolStart,
+              error: resultContent,
+            });
           }
         }
 

@@ -1,5 +1,6 @@
 import { execSync } from "child_process";
 import type { ToolDefinition } from "../lib/types.ts";
+import { logger } from "../lib/logger.ts";
 
 const MAX_RESULTS = 100;
 
@@ -60,9 +61,12 @@ export const grepTool: ToolDefinition = {
 
     const cmd = `grep ${flags.join(" ")} ${JSON.stringify(pattern)} ${JSON.stringify(searchPath)} 2>/dev/null | head -${MAX_RESULTS}`;
 
+    logger.tool.debug("Grep: buscando padrão", { pattern, searchPath, glob, outputMode });
+
     try {
       const result = execSync(cmd, { encoding: "utf-8" });
       const lines = result.trim().split("\n").filter(Boolean);
+      logger.tool.debug("Grep: resultado", { pattern, matchCount: lines.length, limited: lines.length >= MAX_RESULTS });
       if (lines.length === 0) return "Nenhuma correspondência encontrada.";
       const suffix = lines.length >= MAX_RESULTS ? `\n[limitado a ${MAX_RESULTS} resultados]` : "";
       return lines.join("\n") + suffix;
@@ -70,6 +74,7 @@ export const grepTool: ToolDefinition = {
       // grep exits with code 1 when no matches
       const e = err as { status?: number; stdout?: string };
       if (e.status === 1) return "Nenhuma correspondência encontrada.";
+      logger.tool.warn("Grep: erro", { pattern, error: err instanceof Error ? err.message : String(err) });
       return `Erro: ${err instanceof Error ? err.message : String(err)}`;
     }
   },

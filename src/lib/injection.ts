@@ -4,6 +4,7 @@
  * Scans tool result content for patterns that could indicate an external
  * resource is attempting to hijack the agent's behavior.
  */
+import { logger } from "./logger.ts";
 
 const INJECTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   {
@@ -56,6 +57,7 @@ const INJECTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
 export function detectPromptInjection(content: string): string | null {
   for (const { pattern, label } of INJECTION_PATTERNS) {
     if (pattern.test(content)) {
+      logger.app.warn("Injeção de prompt detectada no resultado de ferramenta", { label, contentPreview: content.slice(0, 200) });
       return `Possível injeção de prompt detectada no resultado da ferramenta (${label}). Revise o conteúdo antes de prosseguir.`;
     }
   }

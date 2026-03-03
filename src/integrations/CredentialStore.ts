@@ -11,6 +11,7 @@ import {
 } from "../db/queries/integrations.ts";
 import type { IntegrationCredentials } from "../types/integration.ts";
 import type { IntegrationProvider } from "../types/integration.ts";
+import { logger } from "../lib/logger.ts";
 
 export interface StoredCredential {
   provider: string;
@@ -28,6 +29,7 @@ export function saveCredentials(
 ): void {
   const encrypted = encryptCredentials(credentials);
   upsertIntegration(provider, displayName ?? provider, encrypted);
+  logger.auth.info("Credenciais salvas", { provider, displayName });
 }
 
 /**
@@ -40,8 +42,11 @@ export function getCredentials(
   const row = getIntegrationByProvider(provider);
   if (!row) return null;
   try {
-    return decryptCredentials(row.credentials_encrypted);
-  } catch {
+    const creds = decryptCredentials(row.credentials_encrypted);
+    logger.auth.debug("Credenciais carregadas", { provider });
+    return creds;
+  } catch (err) {
+    logger.auth.error("Falha ao descriptografar credenciais", { provider, error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
@@ -69,4 +74,5 @@ export function isConnected(provider: IntegrationProvider | string): boolean {
  */
 export function disconnectProvider(provider: IntegrationProvider | string): void {
   deleteIntegration(provider);
+  logger.auth.info("Integração desconectada", { provider });
 }
