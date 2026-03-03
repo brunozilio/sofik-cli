@@ -1,0 +1,123 @@
+import fs from "fs";
+import path from "path";
+import type { ToolDefinition } from "../lib/types.ts";
+
+// ─── Plan mode state ───────────────────────────────────────────────────────
+
+export interface PlanApprovalRequest {
+  planContent: string;
+  allowedPrompts?: Array<{ tool: string; prompt: string }>;
+  resolve: (approved: boolean) => void;
+}
+
+let _onExitPlanMode: ((req: PlanApprovalRequest) => void) | null = null;
+
+/**
+ * Register a callback to be called when the AI calls ExitPlanMode.
+ * The callback receives the plan details and a resolve function.
+ * Call resolve(true) to approve and execute, resolve(false) to reject.
+ */
+export function onExitPlanMode(callback: (req: PlanApprovalRequest) => void): void {
+  _onExitPlanMode = callback;
+}
+
+// ─── Tools ─────────────────────────────────────────────────────────────────
+
+export const enterPlanModeTool: ToolDefinition = {
+  name: "EnterPlanMode",
+  description:
+    "Switch to plan mode to explore the codebase and design an implementation approach before " +
+    "writing any code or making changes. In plan mode you can use Read, Glob, Grep, WebFetch, " +
+    "WebSearch, and TaskCreate — but NOT Bash, Write, Edit, or other mutating tools. " +
+    "Use this proactively for non-trivial implementation tasks. " +
+    "When done planning, call ExitPlanMode to present the plan for user approval.",
+  input_schema: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+  async execute(_input) {
+    return (
+      "Modo de planejamento ativado. Você pode explorar o código livremente usando " +
+      "Read, Glob, Grep, WebFetch, WebSearch e TaskCreate. " +
+      "Ferramentas de mutação (Bash, Write, Edit) estão desabilitadas até que o usuário aprove seu plano. " +
+      "Quando estiver pronto, chame ExitPlanMode com seu plano completo."
+    );
+  },
+};
+
+export const exitPlanModeTool: ToolDefinition = {
+  name: "ExitPlanMode",
+  description:
+    "Signal that you are done planning and ready for user approval. " +
+    "Write your complete plan to the plan file first, then call this tool. " +
+    "The user will review your plan and either approve (allowing execution) or reject it. " +
+    "Include allowedPrompts to describe the categories of actions your plan requires.",
+  input_schema: {
+    type: "object",
+    properties: {
+      allowedPrompts: {
+        type: "array",
+        description:
+          "List of action categories your implementation plan requires (shown to user for approval)",
+        items: {
+          type: "object",
+          properties: {
+            tool: {
+              type: "string",
+              description: "The tool name (e.g., 'Bash', 'Write', 'Edit')",
+            },
+            prompt: {
+              type: "string",
+              description:
+                "Semantic description of the action (e.g., 'run tests', 'install dependencies')",
+            },
+          },
+          required: ["tool", "prompt"],
+        },
+      },
+    },
+    required: [],
+  },
+  async execute(input) {
+    const allowedPrompts = input["allowedPrompts"] as
+      | Array<{ tool: string; prompt: string }>
+      | undefined;
+
+    // Try to read a plan file if it was written
+    let planContent = "Plano pronto para revisão.";
+    const planFileCandidates = [
+      path.join(process.cwd(), ".sofik", "plan.md"),
+      path.join(process.cwd(), "PLAN.md"),
+    ];
+    for (const p of planFileCandidates) {
+      try {
+        planContent = fs.readFileSync(p, "utf-8");
+        break;
+      } catch { /* continue */ }
+    }
+
+    if (_onExitPlanMode) {
+      // Trigger UI approval flow
+      const approved = await new Promise<boolean>((resolve) => {
+        _onExitPlanMode!({ planContent, allowedPrompts, resolve });
+      });
+
+      if (!approved) {
+        return "Plano rejeitado pelo usuário. Por favor, revise sua abordagem e tente novamente.";
+      }
+      return (
+        "Plano aprovado! Você pode prosseguir com a implementação. " +
+        "Ferramentas de mutação (Bash, Write, Edit) estão disponíveis."
+      );
+    }
+
+    // Fallback if no UI callback registered
+    return (
+      "Plano pronto. O usuário deve revisar e aprovar antes de prosseguir.\n\n" +
+      (allowedPrompts?.length
+        ? `Permissões necessárias:\n${allowedPrompts.map((p) => `  - ${p.tool}: ${p.prompt}`).join("\n")}`
+        : "")
+    );
+  },
+};

@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sofik Settings",
+  "description": "Configuration for Sofik AI CLI agent",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaultMode": {
+      "type": "string",
+      "enum": ["ask", "auto", "bypassPermissions", "plan"],
+      "description": "Default permission mode on startup"
+    },
+    "model": {
+      "type": "string",
+      "description": "Preferred AI model override (e.g. claude-opus-4-6)"
+    },
+    "permissions": {
+      "type": "array",
+      "description": "Permission rules evaluated in order",
+      "items": {
+        "type": "object",
+        "required": ["type", "rule"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["allow", "deny", "ask"]
+          },
+          "rule": {
+            "type": "string",
+            "description": "Rule pattern like 'Bash(git:*)', 'Edit(src/**)', 'Read(~/.zshrc)'"
+          }
+        }
+      }
+    },
+    "additionalDirectories": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Additional directories the agent can access outside cwd"
+    },
+    "disableSandbox": {
+      "type": "boolean",
+      "description": "Disable sandbox restrictions for Bash commands"
+    },
+    "memoryExcludes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns to exclude from memory loading"
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Hook commands that execute in response to events"
+    },
+    "language": {
+      "type": "string",
+      "description": "Language for AI responses (e.g. 'Portuguese', 'Spanish', 'English')"
+    },
+    "brevity": {
+      "type": "string",
+      "enum": ["strict", "focused", "polished"],
+      "description": "Output verbosity: strict (minimal), focused (brief), polished (refined)"
+    }
+  }
+}
