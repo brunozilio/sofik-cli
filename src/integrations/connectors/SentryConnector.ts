@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class SentryConnector extends BaseConnector {
   get definition(): ConnectorDefinition {
@@ -23,7 +24,7 @@ export class SentryConnector extends BaseConnector {
             if (params.status) updates.status = params.status;
             if (params.assignedTo) updates.assignedTo = params.assignedTo;
 
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://sentry.io/api/0/organizations/${params.organization_slug}/issues/${params.issue_id}/`,
               {
                 method: "PUT",
@@ -45,7 +46,7 @@ export class SentryConnector extends BaseConnector {
             issue_id: { type: "string", description: "Issue ID", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://sentry.io/api/0/issues/${params.issue_id}/`,
               {
                 headers: { Authorization: `Bearer ${creds.apiKey}` },
@@ -62,7 +63,7 @@ export class SentryConnector extends BaseConnector {
             issue_id: { type: "string", description: "Issue ID", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://sentry.io/api/0/issues/${params.issue_id}/events/latest/`,
               {
                 headers: { Authorization: `Bearer ${creds.apiKey}` },

@@ -11,6 +11,7 @@
  *             command: "echo 'Bash ran: $TOOL_INPUT'"
  */
 import { execSync } from "child_process";
+import { fetchWithProxy } from "./fetchWithProxy.ts";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -81,7 +82,7 @@ async function runHook(hook: Hook, context: Record<string, string>): Promise<voi
     } catch { /* hooks are best-effort */ }
   } else if (hook.type === "http") {
     try {
-      await fetch(hook.url, {
+      await fetchWithProxy(hook.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(context),

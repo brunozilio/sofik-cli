@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../lib/types.ts";
+import { fetchWithProxy } from "../lib/fetchWithProxy.ts";
 
 const MAX_RESULTS = 10;
 
@@ -8,59 +9,6 @@ interface SearchResult {
   body: string;
 }
 
-async function searchBrave(
-  query: string,
-  apiKey: string,
-  allowedDomains?: string[],
-  blockedDomains?: string[]
-): Promise<SearchResult[]> {
-  const params = new URLSearchParams({ q: query, count: "10" });
-  const res = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-    headers: {
-      "Accept": "application/json",
-      "Accept-Encoding": "gzip",
-      "X-Subscription-Token": apiKey,
-    },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`Brave API error: ${res.status}`);
-  const data = (await res.json()) as {
-    web?: { results?: Array<{ title: string; url: string; description?: string }> };
-  };
-  let results = (data.web?.results ?? []).map((r) => ({
-    title: r.title,
-    url: r.url,
-    body: r.description ?? "",
-  }));
-  if (allowedDomains?.length) results = results.filter((r) => allowedDomains.some((d) => r.url.includes(d)));
-  if (blockedDomains?.length) results = results.filter((r) => !blockedDomains.some((d) => r.url.includes(d)));
-  return results.slice(0, MAX_RESULTS);
-}
-
-async function searchSerpApi(
-  query: string,
-  apiKey: string,
-  allowedDomains?: string[],
-  blockedDomains?: string[]
-): Promise<SearchResult[]> {
-  const params = new URLSearchParams({ q: query, api_key: apiKey, engine: "google", num: "10" });
-  const res = await fetch(`https://serpapi.com/search?${params}`, {
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`SerpAPI error: ${res.status}`);
-  const data = (await res.json()) as {
-    organic_results?: Array<{ title: string; link: string; snippet?: string }>;
-  };
-  let results = (data.organic_results ?? []).map((r) => ({
-    title: r.title,
-    url: r.link,
-    body: r.snippet ?? "",
-  }));
-  if (allowedDomains?.length) results = results.filter((r) => allowedDomains.some((d) => r.url.includes(d)));
-  if (blockedDomains?.length) results = results.filter((r) => !blockedDomains.some((d) => r.url.includes(d)));
-  return results.slice(0, MAX_RESULTS);
-}
-
 async function searchDuckDuckGo(
   query: string,
   allowedDomains?: string[],
@@ -68,7 +16,7 @@ async function searchDuckDuckGo(
 ): Promise<SearchResult[]> {
   // DuckDuckGo instant answer API (no key required)
   const params = new URLSearchParams({ q: query, format: "json", no_html: "1", t: "SofikAI" });
-  const res = await fetch(`https://api.duckduckgo.com/?${params}`, {
+  const res = await fetchWithProxy(`https://api.duckduckgo.com/?${params}`, {
     headers: { "User-Agent": "SofikAI/1.0" },
     signal: AbortSignal.timeout(10_000),
   });
@@ -117,8 +65,7 @@ export const webSearchTool: ToolDefinition = {
   name: "WebSearch",
   description:
     "Search the web and return relevant results with titles, URLs, and snippets. " +
-    "Uses Brave Search API if BRAVE_API_KEY is set, Google via SerpAPI if SERPAPI_KEY is set, " +
-    "or DuckDuckGo as a fallback (no key required). " +
+    "Uses DuckDuckGo as the search provider. " +
     "Use for finding up-to-date information, documentation, or anything beyond your knowledge cutoff.",
   input_schema: {
     type: "object",
@@ -145,21 +92,10 @@ export const webSearchTool: ToolDefinition = {
     const allowedDomains = input["allowed_domains"] as string[] | undefined;
     const blockedDomains = input["blocked_domains"] as string[] | undefined;
 
-    const braveKey = process.env.BRAVE_API_KEY;
-    const serpKey = process.env.SERPAPI_KEY;
-
     let results: SearchResult[];
     let provider = "DuckDuckGo";
     try {
-      if (braveKey) {
-        provider = "Brave";
-        results = await searchBrave(query, braveKey, allowedDomains, blockedDomains);
-      } else if (serpKey) {
-        provider = "Google (SerpAPI)";
-        results = await searchSerpApi(query, serpKey, allowedDomains, blockedDomains);
-      } else {
         results = await searchDuckDuckGo(query, allowedDomains, blockedDomains);
-      }
     } catch (err) {
       return `Error searching: ${err instanceof Error ? err.message : String(err)}`;
     }

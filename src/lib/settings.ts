@@ -22,6 +22,13 @@ export type SettingsDefaultMode =
   | "bypassPermissions" // Alias for auto
   | "plan";            // Plan-only mode (no mutations)
 
+export interface ProxySettings {
+  /** Proxy URL, e.g. "http://proxy.corp.example.com:8080" */
+  url?: string;
+  /** Hostnames / patterns that bypass the proxy (combined with NO_PROXY env var) */
+  noProxy?: string[];
+}
+
 export interface Settings {
   /** Permission rules evaluated in order */
   permissions?: PermissionRule[];
@@ -41,6 +48,8 @@ export interface Settings {
   language?: string;
   /** Output verbosity: strict (minimal), focused (brief), polished (refined) */
   brevity?: "strict" | "focused" | "polished";
+  /** HTTP/HTTPS proxy configuration */
+  proxy?: ProxySettings;
 }
 
 function readJson(filePath: string): Settings {
@@ -70,6 +79,7 @@ function mergeSettings(...layers: Settings[]): Settings {
       out.memoryExcludes = [...(out.memoryExcludes ?? []), ...s.memoryExcludes];
     if (s.language !== undefined) out.language = s.language;
     if (s.brevity !== undefined) out.brevity = s.brevity;
+    if (s.proxy !== undefined) out.proxy = s.proxy;
   }
   return out;
 }
@@ -136,7 +146,7 @@ export function saveProjectSettings(updates: Partial<Settings>): void {
 
 const KNOWN_SETTINGS_KEYS = new Set([
   "permissions", "defaultMode", "additionalDirectories", "disableSandbox",
-  "memoryExcludes", "model", "hooks", "language", "brevity",
+  "memoryExcludes", "model", "hooks", "language", "brevity", "proxy",
 ]);
 
 const VALID_DEFAULT_MODES = new Set(["ask", "auto", "bypassPermissions", "plan"]);
@@ -164,6 +174,27 @@ export function validateSettings(s: Settings): string[] {
       }
       if (typeof p.rule !== "string" || !p.rule) {
         errors.push(`permissions[${i}].rule must be a non-empty string`);
+      }
+    }
+  }
+  if (s.proxy) {
+    if (s.proxy.url !== undefined && typeof s.proxy.url !== "string") {
+      errors.push(`proxy.url must be a string`);
+    }
+    if (s.proxy.url) {
+      try { new URL(s.proxy.url); } catch {
+        errors.push(`proxy.url is not a valid URL: "${s.proxy.url}"`);
+      }
+    }
+    if (s.proxy.noProxy !== undefined) {
+      if (!Array.isArray(s.proxy.noProxy)) {
+        errors.push(`proxy.noProxy must be an array of strings`);
+      } else {
+        for (let i = 0; i < s.proxy.noProxy.length; i++) {
+          if (typeof s.proxy.noProxy[i] !== "string") {
+            errors.push(`proxy.noProxy[${i}] must be a string`);
+          }
+        }
       }
     }
   }

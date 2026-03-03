@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 const BASE_URL = "https://api.context7.com/v1";
 
@@ -21,7 +22,7 @@ export class Context7Connector extends BaseConnector {
             const token = creds.apiKey ?? creds.accessToken;
             const headers: Record<string, string> = { "Content-Type": "application/json" };
             if (token) headers["Authorization"] = `Bearer ${token}`;
-            const res = await fetch(`${BASE_URL}/libraries/resolve?name=${encodeURIComponent(params.library_name as string)}`, { headers });
+            const res = await fetchWithProxy(`${BASE_URL}/libraries/resolve?name=${encodeURIComponent(params.library_name as string)}`, { headers });
             if (!res.ok) throw new Error(`Context7 API error: ${res.status} ${await res.text()}`);
             return res.json();
           },
@@ -41,7 +42,7 @@ export class Context7Connector extends BaseConnector {
             const q = new URLSearchParams({ library_id: params.library_id as string });
             if (params.topic) q.set("topic", params.topic as string);
             if (params.tokens) q.set("tokens", String(params.tokens));
-            const res = await fetch(`${BASE_URL}/libraries/docs?${q}`, { headers });
+            const res = await fetchWithProxy(`${BASE_URL}/libraries/docs?${q}`, { headers });
             if (!res.ok) throw new Error(`Context7 API error: ${res.status} ${await res.text()}`);
             return res.json();
           },
@@ -59,7 +60,7 @@ export class Context7Connector extends BaseConnector {
             if (token) headers["Authorization"] = `Bearer ${token}`;
             const q = new URLSearchParams({ q: params.query as string });
             if (params.limit) q.set("limit", String(params.limit));
-            const res = await fetch(`${BASE_URL}/libraries/search?${q}`, { headers });
+            const res = await fetchWithProxy(`${BASE_URL}/libraries/search?${q}`, { headers });
             if (!res.ok) throw new Error(`Context7 API error: ${res.status} ${await res.text()}`);
             return res.json();
           },

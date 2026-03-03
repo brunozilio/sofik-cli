@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class StripeConnector extends BaseConnector {
   get definition(): ConnectorDefinition {
@@ -23,7 +24,7 @@ export class StripeConnector extends BaseConnector {
             if (params.amount) body.set("amount", String(params.amount));
             if (params.reason) body.set("reason", String(params.reason));
 
-            const res = await fetch("https://api.stripe.com/v1/refunds", {
+            const res = await fetchWithProxy("https://api.stripe.com/v1/refunds", {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${creds.apiKey}`,
@@ -42,7 +43,7 @@ export class StripeConnector extends BaseConnector {
             subscription_id: { type: "string", description: "Subscription ID", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(`https://api.stripe.com/v1/subscriptions/${params.subscription_id}`, {
+            const res = await fetchWithProxy(`https://api.stripe.com/v1/subscriptions/${params.subscription_id}`, {
               method: "DELETE",
               headers: { Authorization: `Bearer ${creds.apiKey}` },
             });
@@ -57,7 +58,7 @@ export class StripeConnector extends BaseConnector {
             customer_id: { type: "string", description: "Customer ID", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(`https://api.stripe.com/v1/customers/${params.customer_id}`, {
+            const res = await fetchWithProxy(`https://api.stripe.com/v1/customers/${params.customer_id}`, {
               headers: { Authorization: `Bearer ${creds.apiKey}` },
             });
             if (!res.ok) throw new Error(`Stripe error: ${await res.text()}`);

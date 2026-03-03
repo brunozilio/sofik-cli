@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 // Supabase credentials:
 // - apiKey: service_role or anon key
@@ -43,14 +44,14 @@ export class SupabaseConnector extends BaseConnector {
             query: { type: "string", description: "SQL query to execute", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(`${projectUrl(creds)}/rest/v1/rpc/query`, {
+            const res = await fetchWithProxy(`${projectUrl(creds)}/rest/v1/rpc/query`, {
               method: "POST",
               headers: projectHeaders(creds),
               body: JSON.stringify({ query: params.query }),
             });
             if (!res.ok) {
               // Fallback: use PostgREST SQL endpoint
-              const res2 = await fetch(`${projectUrl(creds)}/rest/v1/`, {
+              const res2 = await fetchWithProxy(`${projectUrl(creds)}/rest/v1/`, {
                 method: "POST",
                 headers: { ...projectHeaders(creds), "Content-Profile": "public" },
                 body: JSON.stringify({ query: params.query }),
@@ -80,7 +81,7 @@ export class SupabaseConnector extends BaseConnector {
               const filterParams = new URLSearchParams(params.filter as string);
               filterParams.forEach((v, k) => q.set(k, v));
             }
-            const res = await fetch(`${projectUrl(creds)}/rest/v1/${params.table}?${q}`, {
+            const res = await fetchWithProxy(`${projectUrl(creds)}/rest/v1/${params.table}?${q}`, {
               headers: { ...projectHeaders(creds), Prefer: "return=representation" },
             });
             if (!res.ok) throw new Error(`Supabase API error: ${res.status} ${await res.text()}`);
@@ -97,7 +98,7 @@ export class SupabaseConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const prefer = params.upsert ? "return=representation,resolution=merge-duplicates" : "return=representation";
-            const res = await fetch(`${projectUrl(creds)}/rest/v1/${params.table}`, {
+            const res = await fetchWithProxy(`${projectUrl(creds)}/rest/v1/${params.table}`, {
               method: "POST",
               headers: { ...projectHeaders(creds), Prefer: prefer },
               body: JSON.stringify(params.data),
@@ -116,7 +117,7 @@ export class SupabaseConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const method = (params.method as string) ?? "POST";
-            const res = await fetch(`${projectUrl(creds)}/functions/v1/${params.function_name}`, {
+            const res = await fetchWithProxy(`${projectUrl(creds)}/functions/v1/${params.function_name}`, {
               method,
               headers: projectHeaders(creds),
               body: params.payload ? JSON.stringify(params.payload) : undefined,
@@ -131,7 +132,7 @@ export class SupabaseConnector extends BaseConnector {
           description: "List all Supabase projects in the organization (requires Management API token)",
           params: {},
           async execute(creds: IntegrationCredentials, _params: Record<string, unknown>) {
-            const res = await fetch(`${MANAGEMENT_BASE}/projects`, { headers: managementHeaders(creds) });
+            const res = await fetchWithProxy(`${MANAGEMENT_BASE}/projects`, { headers: managementHeaders(creds) });
             if (!res.ok) throw new Error(`Supabase Management API error: ${res.status} ${await res.text()}`);
             return res.json();
           },
@@ -143,7 +144,7 @@ export class SupabaseConnector extends BaseConnector {
             project_ref: { type: "string", description: "Project reference ID", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(`${MANAGEMENT_BASE}/projects/${params.project_ref}`, {
+            const res = await fetchWithProxy(`${MANAGEMENT_BASE}/projects/${params.project_ref}`, {
               headers: managementHeaders(creds),
             });
             if (!res.ok) throw new Error(`Supabase Management API error: ${res.status} ${await res.text()}`);
@@ -166,7 +167,7 @@ export class SupabaseConnector extends BaseConnector {
               "Content-Type": (params.content_type as string) ?? "text/plain",
             };
             if (params.upsert) headers["x-upsert"] = "true";
-            const res = await fetch(`${projectUrl(creds)}/storage/v1/object/${params.bucket}/${params.path}`, {
+            const res = await fetchWithProxy(`${projectUrl(creds)}/storage/v1/object/${params.bucket}/${params.path}`, {
               method: "POST",
               headers,
               body: params.content as string,

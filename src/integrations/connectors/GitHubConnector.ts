@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class GitHubConnector extends BaseConnector {
   get definition(): ConnectorDefinition {
@@ -21,7 +22,7 @@ export class GitHubConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://api.github.com/repos/${params.owner}/${params.repo}/issues/${params.issue_number}/comments`,
               {
                 method: "POST",
@@ -50,7 +51,7 @@ export class GitHubConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://api.github.com/repos/${params.owner}/${params.repo}/pulls/${params.pull_number}/reviews`,
               {
                 method: "POST",
@@ -78,7 +79,7 @@ export class GitHubConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://api.github.com/repos/${params.owner}/${params.repo}/issues/${params.issue_number}/labels`,
               {
                 method: "POST",
@@ -107,7 +108,7 @@ export class GitHubConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const url = `https://api.github.com/repos/${params.owner}/${params.repo}/contents/${params.path}${params.ref ? `?ref=${params.ref}` : ""}`;
-            const res = await fetch(url, {
+            const res = await fetchWithProxy(url, {
               headers: {
                 Authorization: `Bearer ${token}`,
                 Accept: "application/vnd.github+json",
@@ -132,7 +133,7 @@ export class GitHubConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://api.github.com/repos/${params.owner}/${params.repo}/pulls/${params.pull_number}/files`,
               {
                 headers: {
@@ -158,7 +159,7 @@ export class GitHubConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `https://api.github.com/repos/${params.owner}/${params.repo}/actions/workflows/${params.workflow_id}/dispatches`,
               {
                 method: "POST",

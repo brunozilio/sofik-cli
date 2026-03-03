@@ -8,6 +8,7 @@ import os from "os";
 import { createServer } from "http";
 import { spawn } from "child_process";
 import { createHash, randomBytes } from "crypto";
+import { fetchWithProxy } from "./fetchWithProxy.ts";
 
 // ── Constants (from decompiled source) ───────────────────────────────────────
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -59,13 +60,24 @@ function saveToken(token: OAuthToken): void {
   fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2), "utf-8");
 }
 
+// ── SSH detection ─────────────────────────────────────────────────────────────
+function isSSH(): boolean {
+  return !!(process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION);
+}
+
 // ── Browser ───────────────────────────────────────────────────────────────────
 function openBrowser(url: string): void {
   const cmd =
     process.platform === "darwin" ? "open" :
     process.platform === "win32" ? "start" :
     "xdg-open";
-  spawn(cmd, [url], { detached: true, stdio: "ignore" }).unref();
+  try {
+    const child = spawn(cmd, [url], { detached: true, stdio: "ignore" });
+    child.on("error", () => { /* browser not available — ignore */ });
+    child.unref();
+  } catch {
+    // Silently ignore if browser cannot be launched
+  }
 }
 
 // ── Local callback server ─────────────────────────────────────────────────────
@@ -323,7 +335,7 @@ async function exchangeCode(code: string, codeVerifier: string, state: string): 
     state,
   };
 
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetchWithProxy(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -357,7 +369,7 @@ async function exchangeCode(code: string, codeVerifier: string, state: string): 
 export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
   if (!token.refresh_token) throw new Error("No refresh token available");
 
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetchWithProxy(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -389,7 +401,7 @@ export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
 }
 
 // ── Main login flow ───────────────────────────────────────────────────────────
-export async function login(): Promise<OAuthToken> {
+export async function login(onUrl?: (url: string, ssh: boolean) => void): Promise<OAuthToken> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = randomBytes(16).toString("hex");
@@ -406,8 +418,15 @@ export async function login(): Promise<OAuthToken> {
   });
 
   const authUrl = `${AUTHORIZE_URL}?${params}`;
+  const ssh = isSSH();
 
-  openBrowser(authUrl);
+  if (onUrl) {
+    onUrl(authUrl, ssh);
+  }
+
+  if (!ssh) {
+    openBrowser(authUrl);
+  }
 
   const code = await waitForCallback();
 
@@ -457,7 +476,7 @@ export async function loginCopilot(
   onUserCode: (userCode: string, verificationUri: string) => void
 ): Promise<CopilotToken> {
   // Step 1: request device + user codes
-  const deviceRes = await fetch(GITHUB_DEVICE_CODE_URL, {
+  const deviceRes = await fetchWithProxy(GITHUB_DEVICE_CODE_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -491,7 +510,7 @@ export async function loginCopilot(
   while (Date.now() < expiresAt) {
     await new Promise((r) => setTimeout(r, interval));
 
-    const pollRes = await fetch(GITHUB_TOKEN_URL, {
+    const pollRes = await fetchWithProxy(GITHUB_TOKEN_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

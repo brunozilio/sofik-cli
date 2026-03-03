@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../lib/types.ts";
+import { fetchWithProxy } from "../lib/fetchWithProxy.ts";
 
 const MAX_CHARS = 20_000;
 
@@ -62,7 +63,7 @@ export const webFetchTool: ToolDefinition = {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetchWithProxy(url, {
         headers: {
           "User-Agent":
             "Mozilla/5.0 (compatible; SofikAI/1.0)",

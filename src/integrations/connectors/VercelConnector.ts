@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 const BASE_URL = "https://api.vercel.com";
 
@@ -29,7 +30,7 @@ export class VercelConnector extends BaseConnector {
             const token = creds.apiKey ?? creds.accessToken;
             const q = new URLSearchParams({ limit: String(params.limit ?? 20) });
             if (params.team_id) q.set("teamId", params.team_id as string);
-            const res = await fetch(`${BASE_URL}/v9/projects?${q}`, { headers: vercelHeaders(token) });
+            const res = await fetchWithProxy(`${BASE_URL}/v9/projects?${q}`, { headers: vercelHeaders(token) });
             if (!res.ok) throw new Error(`Vercel API error: ${res.status} ${await res.text()}`);
             return res.json();
           },
@@ -44,7 +45,7 @@ export class VercelConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const q = params.team_id ? `?teamId=${params.team_id}` : "";
-            const res = await fetch(`${BASE_URL}/v9/projects/${params.project_id_or_name}${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/v9/projects/${params.project_id_or_name}${q}`, {
               headers: vercelHeaders(token),
             });
             if (!res.ok) throw new Error(`Vercel API error: ${res.status} ${await res.text()}`);
@@ -65,7 +66,7 @@ export class VercelConnector extends BaseConnector {
             const q = new URLSearchParams({ projectId: params.project_id as string, limit: String(params.limit ?? 10) });
             if (params.team_id) q.set("teamId", params.team_id as string);
             if (params.state) q.set("state", params.state as string);
-            const res = await fetch(`${BASE_URL}/v6/deployments?${q}`, { headers: vercelHeaders(token) });
+            const res = await fetchWithProxy(`${BASE_URL}/v6/deployments?${q}`, { headers: vercelHeaders(token) });
             if (!res.ok) throw new Error(`Vercel API error: ${res.status} ${await res.text()}`);
             return res.json();
           },
@@ -80,7 +81,7 @@ export class VercelConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const q = params.team_id ? `?teamId=${params.team_id}` : "";
-            const res = await fetch(`${BASE_URL}/v13/deployments/${params.deployment_id_or_url}${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/v13/deployments/${params.deployment_id_or_url}${q}`, {
               headers: vercelHeaders(token),
             });
             if (!res.ok) throw new Error(`Vercel API error: ${res.status} ${await res.text()}`);
@@ -97,7 +98,7 @@ export class VercelConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const q = params.team_id ? `?teamId=${params.team_id}` : "";
-            const res = await fetch(`${BASE_URL}/v12/deployments/${params.deployment_id}/cancel${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/v12/deployments/${params.deployment_id}/cancel${q}`, {
               method: "PATCH",
               headers: vercelHeaders(token),
             });
@@ -115,7 +116,7 @@ export class VercelConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const q = params.team_id ? `?teamId=${params.team_id}` : "";
-            const res = await fetch(`${BASE_URL}/v9/projects/${params.project_id}/env${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/v9/projects/${params.project_id}/env${q}`, {
               headers: vercelHeaders(token),
             });
             if (!res.ok) throw new Error(`Vercel API error: ${res.status} ${await res.text()}`);
@@ -141,7 +142,7 @@ export class VercelConnector extends BaseConnector {
               target: (params.target as string[]) ?? ["production", "preview", "development"],
               type: "plain",
             };
-            const res = await fetch(`${BASE_URL}/v10/projects/${params.project_id}/env${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/v10/projects/${params.project_id}/env${q}`, {
               method: "POST",
               headers: vercelHeaders(token),
               body: JSON.stringify(body),

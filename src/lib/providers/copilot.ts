@@ -3,6 +3,7 @@ import type { LocalContentBlock, Message, ToolResult } from "../types.ts";
 import { COPILOT_MODELS } from "../models.ts";
 import { buildSystemPrompt } from "../systemPrompt.ts";
 import { loadCopilotToken } from "../oauth.ts";
+import { fetchWithProxy } from "../fetchWithProxy.ts";
 
 const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token";
 const COPILOT_CHAT_URL  = "https://api.githubcopilot.com/chat/completions";
@@ -18,7 +19,7 @@ async function getCopilotToken(): Promise<string> {
   const github = loadCopilotToken();
   if (!github) throw new Error("Not logged in to GitHub Copilot. Run /login.");
 
-  const res = await fetch(COPILOT_TOKEN_URL, {
+  const res = await fetchWithProxy(COPILOT_TOKEN_URL, {
     headers: {
       "Authorization": `token ${github.access_token}`,
       "Accept": "application/json",
@@ -150,7 +151,7 @@ export class CopilotProvider implements LLMProvider {
         stream: true,
       };
 
-      const res = await fetch(COPILOT_CHAT_URL, {
+      const res = await fetchWithProxy(COPILOT_CHAT_URL, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,

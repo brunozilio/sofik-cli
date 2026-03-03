@@ -124,9 +124,21 @@ export function createSlashHandler(deps: SlashHandlerDeps) {
         if (!provider) return true; // cancelled
 
         if (provider === "anthropic") {
-          setSystemMessage("Abrindo navegador para login na Anthropic…");
+          setSystemMessage("Iniciando autenticação Anthropic…");
           try {
-            const token = await login();
+            const token = await login((url, ssh) => {
+              if (ssh) {
+                setSystemMessage(
+                  `Sessão SSH detectada — abra o link abaixo no seu navegador local:\n\n` +
+                  `${url}\n\n` +
+                  `Para que o callback funcione, execute no seu computador local antes de abrir o link:\n` +
+                  `  ssh -L 54321:localhost:54321 SEU_SERVIDOR\n\n` +
+                  `Aguardando autorização…`
+                );
+              } else {
+                setSystemMessage(`Navegador aberto. Aguardando autorização…\n\nSe não abrir automaticamente:\n${url}`);
+              }
+            });
             setSystemMessage(
               `Login realizado com sucesso.\n  Escopos: ${token.scope ?? "user:profile user:inference"}`
             );

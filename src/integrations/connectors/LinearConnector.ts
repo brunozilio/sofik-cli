@@ -1,10 +1,11 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 const LINEAR_GRAPHQL = "https://api.linear.app/graphql";
 
 async function linearQuery(apiKey: string, query: string, variables?: Record<string, unknown>) {
-  const res = await fetch(LINEAR_GRAPHQL, {
+  const res = await fetchWithProxy(LINEAR_GRAPHQL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

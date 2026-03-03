@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 const BASE_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -32,7 +33,7 @@ export class NotionConnector extends BaseConnector {
             const token = creds.apiKey ?? creds.accessToken;
             const body: Record<string, unknown> = { query: params.query, page_size: params.page_size ?? 10 };
             if (params.filter_type) body.filter = { value: params.filter_type, property: "object" };
-            const res = await fetch(`${BASE_URL}/search`, {
+            const res = await fetchWithProxy(`${BASE_URL}/search`, {
               method: "POST",
               headers: notionHeaders(token),
               body: JSON.stringify(body),
@@ -49,7 +50,7 @@ export class NotionConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(`${BASE_URL}/pages/${params.page_id}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/pages/${params.page_id}`, {
               headers: notionHeaders(token),
             });
             if (!res.ok) throw new Error(`Notion API error: ${res.status} ${await res.text()}`);
@@ -84,7 +85,7 @@ export class NotionConnector extends BaseConnector {
                 },
               ];
             }
-            const res = await fetch(`${BASE_URL}/pages`, {
+            const res = await fetchWithProxy(`${BASE_URL}/pages`, {
               method: "POST",
               headers: notionHeaders(token),
               body: JSON.stringify(body),
@@ -105,7 +106,7 @@ export class NotionConnector extends BaseConnector {
             const token = creds.apiKey ?? creds.accessToken;
             const body: Record<string, unknown> = { properties: params.properties };
             if (params.archived !== undefined) body.archived = params.archived;
-            const res = await fetch(`${BASE_URL}/pages/${params.page_id}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/pages/${params.page_id}`, {
               method: "PATCH",
               headers: notionHeaders(token),
               body: JSON.stringify(body),
@@ -123,7 +124,7 @@ export class NotionConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(`${BASE_URL}/blocks/${params.page_id}/children`, {
+            const res = await fetchWithProxy(`${BASE_URL}/blocks/${params.page_id}/children`, {
               method: "PATCH",
               headers: notionHeaders(token),
               body: JSON.stringify({
@@ -154,7 +155,7 @@ export class NotionConnector extends BaseConnector {
             const body: Record<string, unknown> = { page_size: params.page_size ?? 10 };
             if (params.filter) body.filter = params.filter;
             if (params.sorts) body.sorts = params.sorts;
-            const res = await fetch(`${BASE_URL}/databases/${params.database_id}/query`, {
+            const res = await fetchWithProxy(`${BASE_URL}/databases/${params.database_id}/query`, {
               method: "POST",
               headers: notionHeaders(token),
               body: JSON.stringify(body),

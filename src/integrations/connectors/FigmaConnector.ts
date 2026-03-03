@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 const BASE_URL = "https://api.figma.com/v1";
 
@@ -25,7 +26,7 @@ export class FigmaConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const q = new URLSearchParams({ depth: String(params.depth ?? 2) });
-            const res = await fetch(`${BASE_URL}/files/${params.file_key}?${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/files/${params.file_key}?${q}`, {
               headers: figmaHeaders(token),
             });
             if (!res.ok) throw new Error(`Figma API error: ${res.status} ${await res.text()}`);
@@ -42,7 +43,7 @@ export class FigmaConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
             const ids = (params.node_ids as string[]).join(",");
-            const res = await fetch(`${BASE_URL}/files/${params.file_key}/nodes?ids=${encodeURIComponent(ids)}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/files/${params.file_key}/nodes?ids=${encodeURIComponent(ids)}`, {
               headers: figmaHeaders(token),
             });
             if (!res.ok) throw new Error(`Figma API error: ${res.status} ${await res.text()}`);
@@ -66,7 +67,7 @@ export class FigmaConnector extends BaseConnector {
               format: (params.format as string) ?? "png",
               scale: String(params.scale ?? 1),
             });
-            const res = await fetch(`${BASE_URL}/images/${params.file_key}?${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/images/${params.file_key}?${q}`, {
               headers: figmaHeaders(token),
             });
             if (!res.ok) throw new Error(`Figma API error: ${res.status} ${await res.text()}`);
@@ -81,7 +82,7 @@ export class FigmaConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(`${BASE_URL}/files/${params.file_key}/comments`, {
+            const res = await fetchWithProxy(`${BASE_URL}/files/${params.file_key}/comments`, {
               headers: figmaHeaders(token),
             });
             if (!res.ok) throw new Error(`Figma API error: ${res.status} ${await res.text()}`);
@@ -101,7 +102,7 @@ export class FigmaConnector extends BaseConnector {
             const token = creds.apiKey ?? creds.accessToken;
             const body: Record<string, unknown> = { message: params.message };
             if (params.client_meta) body.client_meta = params.client_meta;
-            const res = await fetch(`${BASE_URL}/files/${params.file_key}/comments`, {
+            const res = await fetchWithProxy(`${BASE_URL}/files/${params.file_key}/comments`, {
               method: "POST",
               headers: { ...figmaHeaders(token), "Content-Type": "application/json" },
               body: JSON.stringify(body),
@@ -118,7 +119,7 @@ export class FigmaConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch(`${BASE_URL}/teams/${params.team_id}/projects`, {
+            const res = await fetchWithProxy(`${BASE_URL}/teams/${params.team_id}/projects`, {
               headers: figmaHeaders(token),
             });
             if (!res.ok) throw new Error(`Figma API error: ${res.status} ${await res.text()}`);

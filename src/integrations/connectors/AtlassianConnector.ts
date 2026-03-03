@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 // Atlassian covers both Jira and Confluence.
 // Credentials: apiKey = base64(email:api_token), extra.domain = "yoursite.atlassian.net"
@@ -54,7 +55,7 @@ export class AtlassianConnector extends BaseConnector {
             if (params.priority) fields.priority = { name: params.priority };
             if (params.assignee_account_id) fields.assignee = { accountId: params.assignee_account_id };
             if (params.labels) fields.labels = params.labels;
-            const res = await fetch(base, {
+            const res = await fetchWithProxy(base, {
               method: "POST",
               headers: atlassianHeaders(creds),
               body: JSON.stringify({ fields }),
@@ -70,7 +71,7 @@ export class AtlassianConnector extends BaseConnector {
             issue_key: { type: "string", description: "Issue key (e.g. ENG-123)", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(`https://${domain(creds)}/rest/api/3/issue/${params.issue_key}`, {
+            const res = await fetchWithProxy(`https://${domain(creds)}/rest/api/3/issue/${params.issue_key}`, {
               headers: atlassianHeaders(creds),
             });
             if (!res.ok) throw new Error(`Jira API error: ${res.status} ${await res.text()}`);
@@ -91,7 +92,7 @@ export class AtlassianConnector extends BaseConnector {
               maxResults: params.max_results ?? 20,
               fields: (params.fields as string[]) ?? ["summary", "status", "assignee", "priority", "issuetype"],
             };
-            const res = await fetch(`https://${domain(creds)}/rest/api/3/search`, {
+            const res = await fetchWithProxy(`https://${domain(creds)}/rest/api/3/search`, {
               method: "POST",
               headers: atlassianHeaders(creds),
               body: JSON.stringify(body),
@@ -113,7 +114,7 @@ export class AtlassianConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const base = `https://${domain(creds)}/rest/api/3/issue/${params.issue_key}`;
             if (params.status_transition_id) {
-              const transRes = await fetch(`${base}/transitions`, {
+              const transRes = await fetchWithProxy(`${base}/transitions`, {
                 method: "POST",
                 headers: atlassianHeaders(creds),
                 body: JSON.stringify({ transition: { id: params.status_transition_id } }),
@@ -125,7 +126,7 @@ export class AtlassianConnector extends BaseConnector {
             if (params.assignee_account_id) fields.assignee = { accountId: params.assignee_account_id };
             if (params.priority) fields.priority = { name: params.priority };
             if (Object.keys(fields).length > 0) {
-              const res = await fetch(base, {
+              const res = await fetchWithProxy(base, {
                 method: "PUT",
                 headers: atlassianHeaders(creds),
                 body: JSON.stringify({ fields }),
@@ -143,7 +144,7 @@ export class AtlassianConnector extends BaseConnector {
             body: { type: "string", description: "Comment text", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(`https://${domain(creds)}/rest/api/3/issue/${params.issue_key}/comment`, {
+            const res = await fetchWithProxy(`https://${domain(creds)}/rest/api/3/issue/${params.issue_key}/comment`, {
               method: "POST",
               headers: atlassianHeaders(creds),
               body: JSON.stringify({
@@ -179,7 +180,7 @@ export class AtlassianConnector extends BaseConnector {
             if (params.parent_page_id) {
               body.ancestors = [{ id: params.parent_page_id }];
             }
-            const res = await fetch(`https://${domain(creds)}/wiki/rest/api/content`, {
+            const res = await fetchWithProxy(`https://${domain(creds)}/wiki/rest/api/content`, {
               method: "POST",
               headers: atlassianHeaders(creds),
               body: JSON.stringify(body),
@@ -197,7 +198,7 @@ export class AtlassianConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const q = new URLSearchParams({ cql: params.cql as string, limit: String(params.limit ?? 10) });
-            const res = await fetch(`https://${domain(creds)}/wiki/rest/api/content/search?${q}`, {
+            const res = await fetchWithProxy(`https://${domain(creds)}/wiki/rest/api/content/search?${q}`, {
               headers: atlassianHeaders(creds),
             });
             if (!res.ok) throw new Error(`Confluence API error: ${res.status} ${await res.text()}`);

@@ -4,6 +4,7 @@ import type { Message } from "../types.ts";
 import { MODELS } from "../models.ts";
 import { buildSystemPrompt } from "../systemPrompt.ts";
 import { getValidToken } from "../oauth.ts";
+import { fetchWithProxy } from "../fetchWithProxy.ts";
 
 const BASE_URL = "https://api.anthropic.com/v1";
 
@@ -101,7 +102,7 @@ export class AnthropicProvider implements LLMProvider {
 
       if (signal?.aborted) return;
 
-      const response = await fetch(`${BASE_URL}/messages`, {
+      const response = await fetchWithProxy(`${BASE_URL}/messages`, {
         method: "POST",
         headers,
         body: JSON.stringify({

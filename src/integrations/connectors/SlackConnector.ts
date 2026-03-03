@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class SlackConnector extends BaseConnector {
   get definition(): ConnectorDefinition {
@@ -21,7 +22,7 @@ export class SlackConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch("https://slack.com/api/chat.postMessage", {
+            const res = await fetchWithProxy("https://slack.com/api/chat.postMessage", {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -48,7 +49,7 @@ export class SlackConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const token = creds.apiKey ?? creds.accessToken;
-            const res = await fetch("https://slack.com/api/conversations.create", {
+            const res = await fetchWithProxy("https://slack.com/api/conversations.create", {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${token}`,

@@ -1,5 +1,6 @@
 import { BaseConnector } from "../BaseConnector.ts";
 import type { ConnectorDefinition, IntegrationCredentials } from "../../types/integration.ts";
+import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 // Cloudflare credentials:
 // - apiKey: Cloudflare API Token
@@ -32,7 +33,7 @@ export class CloudflareConnector extends BaseConnector {
           description: "List all Workers in a Cloudflare account",
           params: {},
           async execute(creds: IntegrationCredentials, _params: Record<string, unknown>) {
-            const res = await fetch(`${BASE_URL}/accounts/${accountId(creds)}/workers/scripts`, {
+            const res = await fetchWithProxy(`${BASE_URL}/accounts/${accountId(creds)}/workers/scripts`, {
               headers: cfHeaders(creds),
             });
             if (!res.ok) throw new Error(`Cloudflare API error: ${res.status} ${await res.text()}`);
@@ -46,7 +47,7 @@ export class CloudflareConnector extends BaseConnector {
             script_name: { type: "string", description: "Worker script name", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `${BASE_URL}/accounts/${accountId(creds)}/workers/scripts/${params.script_name}`,
               { headers: cfHeaders(creds) }
             );
@@ -79,7 +80,7 @@ export class CloudflareConnector extends BaseConnector {
               "worker.js"
             );
             const headers = { Authorization: `Bearer ${creds.apiKey ?? creds.accessToken ?? ""}` };
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `${BASE_URL}/accounts/${accountId(creds)}/workers/scripts/${params.script_name}`,
               { method: "PUT", headers, body: formData }
             );
@@ -94,7 +95,7 @@ export class CloudflareConnector extends BaseConnector {
             script_name: { type: "string", description: "Worker script name to delete", required: true },
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `${BASE_URL}/accounts/${accountId(creds)}/workers/scripts/${params.script_name}`,
               { method: "DELETE", headers: cfHeaders(creds) }
             );
@@ -123,7 +124,7 @@ export class CloudflareConnector extends BaseConnector {
               if (params.tags) body.tags = params.tags;
               if (params.prefixes) body.prefixes = params.prefixes;
             }
-            const res = await fetch(`${BASE_URL}/zones/${zoneId}/purge_cache`, {
+            const res = await fetchWithProxy(`${BASE_URL}/zones/${zoneId}/purge_cache`, {
               method: "POST",
               headers: cfHeaders(creds),
               body: JSON.stringify(body),
@@ -141,7 +142,7 @@ export class CloudflareConnector extends BaseConnector {
           },
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const q = new URLSearchParams({ page: String(params.page ?? 1), per_page: String(params.per_page ?? 20) });
-            const res = await fetch(`${BASE_URL}/accounts/${accountId(creds)}/storage/kv/namespaces?${q}`, {
+            const res = await fetchWithProxy(`${BASE_URL}/accounts/${accountId(creds)}/storage/kv/namespaces?${q}`, {
               headers: cfHeaders(creds),
             });
             if (!res.ok) throw new Error(`Cloudflare API error: ${res.status} ${await res.text()}`);
@@ -160,7 +161,7 @@ export class CloudflareConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const q = params.expiration_ttl ? `?expiration_ttl=${params.expiration_ttl}` : "";
             const headers = { Authorization: `Bearer ${creds.apiKey ?? creds.accessToken ?? ""}` };
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `${BASE_URL}/accounts/${accountId(creds)}/storage/kv/namespaces/${params.namespace_id}/values/${encodeURIComponent(params.key as string)}${q}`,
               { method: "PUT", headers, body: params.value as string }
             );
@@ -173,7 +174,7 @@ export class CloudflareConnector extends BaseConnector {
           description: "List D1 databases in a Cloudflare account",
           params: {},
           async execute(creds: IntegrationCredentials, _params: Record<string, unknown>) {
-            const res = await fetch(`${BASE_URL}/accounts/${accountId(creds)}/d1/database`, {
+            const res = await fetchWithProxy(`${BASE_URL}/accounts/${accountId(creds)}/d1/database`, {
               headers: cfHeaders(creds),
             });
             if (!res.ok) throw new Error(`Cloudflare API error: ${res.status} ${await res.text()}`);
@@ -191,7 +192,7 @@ export class CloudflareConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const body: Record<string, unknown> = { sql: params.sql };
             if (params.params) body.params = params.params;
-            const res = await fetch(
+            const res = await fetchWithProxy(
               `${BASE_URL}/accounts/${accountId(creds)}/d1/database/${params.database_id}/query`,
               { method: "POST", headers: cfHeaders(creds), body: JSON.stringify(body) }
             );
@@ -204,7 +205,7 @@ export class CloudflareConnector extends BaseConnector {
           description: "List Cloudflare Pages projects",
           params: {},
           async execute(creds: IntegrationCredentials, _params: Record<string, unknown>) {
-            const res = await fetch(`${BASE_URL}/accounts/${accountId(creds)}/pages/projects`, {
+            const res = await fetchWithProxy(`${BASE_URL}/accounts/${accountId(creds)}/pages/projects`, {
               headers: cfHeaders(creds),
             });
             if (!res.ok) throw new Error(`Cloudflare API error: ${res.status} ${await res.text()}`);
@@ -220,7 +221,7 @@ export class CloudflareConnector extends BaseConnector {
           async execute(creds: IntegrationCredentials, params: Record<string, unknown>) {
             const zoneId = (params.zone_id as string) ?? (creds.extra?.zone_id as string);
             if (!zoneId) throw new Error("zone_id is required");
-            const res = await fetch(`${BASE_URL}/zones/${zoneId}`, { headers: cfHeaders(creds) });
+            const res = await fetchWithProxy(`${BASE_URL}/zones/${zoneId}`, { headers: cfHeaders(creds) });
             if (!res.ok) throw new Error(`Cloudflare API error: ${res.status} ${await res.text()}`);
             return res.json();
           },

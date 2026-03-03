@@ -59,6 +59,22 @@
       "type": "string",
       "enum": ["strict", "focused", "polished"],
       "description": "Output verbosity: strict (minimal), focused (brief), polished (refined)"
+    },
+    "proxy": {
+      "type": "object",
+      "description": "HTTP/HTTPS proxy configuration for outbound requests",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Proxy URL, e.g. \"http://proxy.corp.example.com:8080\""
+        },
+        "noProxy": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hostnames/patterns that bypass the proxy. Supports \"*\" (all), \".example.com\" (domain+subdomains), \"host:port\". Combined with NO_PROXY env var."
+        }
+      }
     }
   }
 }
