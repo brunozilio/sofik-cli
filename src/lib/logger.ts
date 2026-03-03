@@ -159,6 +159,7 @@ export const logger = {
     info(msg: string, data?: Record<string, unknown>) { write("permission", "info", msg, data); },
     warn(msg: string, data?: Record<string, unknown>) { write("permission", "warn", msg, data); },
     error(msg: string, data?: Record<string, unknown>) { write("permission", "error", msg, data); },
+    debug(msg: string, data?: Record<string, unknown>) { write("permission", "debug", msg, data); },
   },
 
   // ── Session persistence ───────────────────────────────────────────────────
@@ -166,6 +167,7 @@ export const logger = {
     info(msg: string, data?: Record<string, unknown>) { write("session", "info", msg, data); },
     warn(msg: string, data?: Record<string, unknown>) { write("session", "warn", msg, data); },
     error(msg: string, data?: Record<string, unknown>) { write("session", "error", msg, data); },
+    debug(msg: string, data?: Record<string, unknown>) { write("session", "debug", msg, data); },
   },
 
   // ── Database ──────────────────────────────────────────────────────────────
@@ -181,6 +183,7 @@ export const logger = {
     info(msg: string, data?: Record<string, unknown>) { write("auth", "info", msg, data); },
     warn(msg: string, data?: Record<string, unknown>) { write("auth", "warn", msg, data); },
     error(msg: string, data?: Record<string, unknown>) { write("auth", "error", msg, data); },
+    debug(msg: string, data?: Record<string, unknown>) { write("auth", "debug", msg, data); },
   },
 
   // ── Job queue ─────────────────────────────────────────────────────────────
@@ -188,6 +191,7 @@ export const logger = {
     info(msg: string, data?: Record<string, unknown>) { write("job", "info", msg, data); },
     warn(msg: string, data?: Record<string, unknown>) { write("job", "warn", msg, data); },
     error(msg: string, data?: Record<string, unknown>) { write("job", "error", msg, data); },
+    debug(msg: string, data?: Record<string, unknown>) { write("job", "debug", msg, data); },
   },
 
   // ── MCP servers ───────────────────────────────────────────────────────────
@@ -195,5 +199,6 @@ export const logger = {
     info(msg: string, data?: Record<string, unknown>) { write("mcp", "info", msg, data); },
     warn(msg: string, data?: Record<string, unknown>) { write("mcp", "warn", msg, data); },
     error(msg: string, data?: Record<string, unknown>) { write("mcp", "error", msg, data); },
+    debug(msg: string, data?: Record<string, unknown>) { write("mcp", "debug", msg, data); },
   },
 };

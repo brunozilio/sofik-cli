@@ -475,4 +475,22 @@ describe("TaskGet formatted output", () => {
     const result = String(await taskGetTool.execute({ taskId: id }));
     expect(result).not.toContain("Metadados:");
   });
+
+  test("taskGetTool shows blocks and blockedBy with #id format", async () => {
+    const blockerId = await createTask("Bloqueador");
+    const depId = await createTask("Dependente");
+    // blockerId blocks depId: depId.blockedBy=[blockerId], blockerId.blocks=[depId]
+    await taskUpdateTool.execute({ taskId: depId, addBlockedBy: [blockerId] });
+
+    const blockerResult = String(await taskGetTool.execute({ taskId: blockerId }));
+    expect(blockerResult).toContain(`#${depId}`);
+
+    const depResult = String(await taskGetTool.execute({ taskId: depId }));
+    expect(depResult).toContain(`#${blockerId}`);
+  });
+
+  test("taskGetTool returns error when task not found", async () => {
+    const result = String(await taskGetTool.execute({ taskId: "99999" }));
+    expect(result).toContain("não encontrada");
+  });
 });
