@@ -4,6 +4,7 @@ import {
   getCurrentModel,
   estimateCost,
   shouldCompact,
+  microcompact,
   createClient,
 } from "./anthropic.ts";
 import type { Message } from "./types.ts";
@@ -180,5 +181,241 @@ describe("createClient", () => {
       createClient();
       createClient();
     }).not.toThrow();
+  });
+});
+
+// ── shouldCompact — lastInputTokens branch ────────────────────────────────────
+
+describe("shouldCompact — with lastInputTokens", () => {
+  test("returns true when ratio > 0.80 of context window", () => {
+    setModel("claude-opus-4-6"); // 200K context window
+    // 200_000 * 0.80 = 160_000 threshold. Pass 170_000 → ratio = 0.85
+    expect(shouldCompact([], 170_000)).toBe(true);
+  });
+
+  test("returns false when ratio <= 0.80 of context window", () => {
+    setModel("claude-opus-4-6"); // 200K context window
+    // 200_000 * 0.80 = 160_000 threshold. Pass 100_000 → ratio = 0.50
+    expect(shouldCompact([], 100_000)).toBe(false);
+  });
+
+  test("returns false at exactly 0.80 threshold", () => {
+    setModel("claude-opus-4-6");
+    // 200_000 * 0.80 = 160_000. At exactly 160_000 → ratio = 0.80 (not > 0.80)
+    expect(shouldCompact([], 160_000)).toBe(false);
+  });
+
+  test("returns true just above 0.80 threshold", () => {
+    setModel("claude-opus-4-6");
+    expect(shouldCompact([], 160_001)).toBe(true);
+  });
+
+  test("messages argument is ignored when lastInputTokens is provided", () => {
+    setModel("claude-opus-4-6");
+    const bigMessages: Message[] = [{ role: "user", content: "x".repeat(700_000) }];
+    // Even with huge messages, lastInputTokens=100 says we're fine
+    expect(shouldCompact(bigMessages, 100)).toBe(false);
+  });
+
+  test("works with sonnet model (200K context too)", () => {
+    setModel("claude-sonnet-4-6");
+    // sonnet also 200K context
+    expect(shouldCompact([], 170_000)).toBe(true);
+    expect(shouldCompact([], 100_000)).toBe(false);
+    setModel("claude-opus-4-6");
+  });
+});
+
+// ── microcompact ──────────────────────────────────────────────────────────────
+
+describe("microcompact", () => {
+  test("returns same messages when no microcompact-able tools present", () => {
+    const messages: Message[] = [
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi" },
+    ];
+    const result = microcompact(messages);
+    expect(result).toBe(messages); // same reference (no change)
+  });
+
+  test("returns same messages when tool count <= MICROCOMPACT_KEEP_LAST (3)", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "r1", content: "result1" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "r1", name: "Read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "r2", content: "result2" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "r2", name: "Read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "r3", content: "result3" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "r3", name: "Read", input: {} }],
+      },
+    ];
+    const result = microcompact(messages);
+    expect(result).toBe(messages); // unchanged, only 3 occurrences of Read
+  });
+
+  test("clears old tool results when same tool used > 3 times", () => {
+    // Build 4 Read calls: the first one should be cleared
+    const messages: Message[] = [];
+    for (let i = 1; i <= 4; i++) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: `r${i}`, name: "Read", input: {} }],
+      });
+      messages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: `r${i}`, content: `content${i}` }],
+      });
+    }
+
+    const result = microcompact(messages);
+    expect(result).not.toBe(messages); // a new array was returned
+
+    // Find the tool_result for r1 (oldest) — it should be cleared
+    const userMsgs = result.filter((m) => m.role === "user");
+    const r1Msg = userMsgs.find((m) =>
+      Array.isArray(m.content) &&
+      m.content.some((b) => b.type === "tool_result" && b.tool_use_id === "r1")
+    );
+    expect(r1Msg).toBeDefined();
+    const r1Block = (r1Msg!.content as Array<{ type: string; tool_use_id: string; content: string }>)
+      .find((b) => b.tool_use_id === "r1");
+    expect(r1Block!.content).toBe("[content cleared for context management]");
+  });
+
+  test("keeps the 3 most recent tool results intact", () => {
+    const messages: Message[] = [];
+    for (let i = 1; i <= 5; i++) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: `g${i}`, name: "Grep", input: {} }],
+      });
+      messages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: `g${i}`, content: `grep${i}` }],
+      });
+    }
+
+    const result = microcompact(messages);
+
+    // r3, r4, r5 should be kept (the last 3)
+    const userMsgs = result.filter((m) => m.role === "user");
+    for (const keepId of ["g3", "g4", "g5"]) {
+      const msg = userMsgs.find((m) =>
+        Array.isArray(m.content) &&
+        m.content.some((b) => b.type === "tool_result" && b.tool_use_id === keepId)
+      );
+      const block = (msg!.content as Array<{ type: string; tool_use_id: string; content: string }>)
+        .find((b) => b.tool_use_id === keepId);
+      expect(block!.content).not.toBe("[content cleared for context management]");
+    }
+  });
+
+  test("does not touch non-microcompact tools (e.g. Write, Edit)", () => {
+    const messages: Message[] = [];
+    for (let i = 1; i <= 5; i++) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: `w${i}`, name: "Write", input: {} }],
+      });
+      messages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: `w${i}`, content: `write${i}` }],
+      });
+    }
+
+    const result = microcompact(messages);
+    // Write is not in MICROCOMPACT_TOOLS, so nothing changes
+    expect(result).toBe(messages);
+  });
+
+  test("handles mixed messages with string content unchanged", () => {
+    const messages: Message[] = [];
+    messages.push({ role: "user", content: "plain string" });
+    for (let i = 1; i <= 4; i++) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: `b${i}`, name: "Bash", input: {} }],
+      });
+      messages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: `b${i}`, content: `bash${i}` }],
+      });
+    }
+    messages.push({ role: "user", content: "another string message" });
+
+    const result = microcompact(messages);
+    // The plain string messages should remain unchanged
+    const stringMsgs = result.filter((m) => typeof m.content === "string");
+    expect(stringMsgs[0].content).toBe("plain string");
+    expect(stringMsgs[1].content).toBe("another string message");
+  });
+
+  test("returns new array when compaction occurs (does not mutate original)", () => {
+    const messages: Message[] = [];
+    for (let i = 1; i <= 4; i++) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: `g${i}`, name: "Glob", input: {} }],
+      });
+      messages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: `g${i}`, content: `glob${i}` }],
+      });
+    }
+
+    const original = JSON.parse(JSON.stringify(messages));
+    microcompact(messages);
+
+    // Original should not be mutated
+    expect(messages).toEqual(original);
+  });
+
+  test("handles multiple different tools each > 3 occurrences", () => {
+    const messages: Message[] = [];
+    // 4 Reads + 4 Greps interleaved
+    for (let i = 1; i <= 4; i++) {
+      messages.push({
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: `rd${i}`, name: "Read", input: {} },
+          { type: "tool_use", id: `gr${i}`, name: "Grep", input: {} },
+        ],
+      });
+      messages.push({
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: `rd${i}`, content: `read${i}` },
+          { type: "tool_result", tool_use_id: `gr${i}`, content: `grep${i}` },
+        ],
+      });
+    }
+
+    const result = microcompact(messages);
+    expect(result).not.toBe(messages);
+
+    // rd1 and gr1 (oldest of each) should be cleared
+    const userMsgs = result.filter((m) => m.role === "user");
+    const firstUserMsg = userMsgs[0];
+    const blocks = firstUserMsg.content as Array<{ type: string; tool_use_id: string; content: string }>;
+    const rd1 = blocks.find((b) => b.tool_use_id === "rd1");
+    const gr1 = blocks.find((b) => b.tool_use_id === "gr1");
+    expect(rd1!.content).toBe("[content cleared for context management]");
+    expect(gr1!.content).toBe("[content cleared for context management]");
   });
 });

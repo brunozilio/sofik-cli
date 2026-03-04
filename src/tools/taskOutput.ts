@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../lib/types.ts";
 import { backgroundTaskRegistry } from "../lib/backgroundTasks.ts";
+import { logger } from "../lib/logger.ts";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,10 +43,13 @@ export const taskOutputTool: ToolDefinition = {
 
     const task = backgroundTaskRegistry.get(taskId);
     if (!task) {
+      logger.tool.warn("TaskOutput: tarefa não encontrada", { taskId });
       return JSON.stringify({
         error: `Task not found: "${taskId}". Only tasks started in the current session are tracked.`,
       });
     }
+
+    logger.tool.info("TaskOutput: consultando tarefa", { taskId, status: task.status, block, timeoutMs });
 
     if (block && task.status === "running") {
       await Promise.race([task.promise, sleep(timeoutMs)]);
@@ -53,6 +57,7 @@ export const taskOutputTool: ToolDefinition = {
 
     // Re-read after potential await
     const current = backgroundTaskRegistry.get(taskId)!;
+    logger.tool.info("TaskOutput: resultado retornado", { taskId, status: current.status, outputLength: current.partialOutput.length });
     return JSON.stringify({
       task_id: taskId,
       type: current.type,

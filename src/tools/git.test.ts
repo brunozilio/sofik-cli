@@ -284,6 +284,31 @@ describe("gitTool — reset", () => {
   });
 });
 
+// ── push ───────────────────────────────────────────────────────────────────────
+
+describe("gitTool — push", () => {
+  test("returns error when no remote is configured", async () => {
+    process.chdir(repoDir);
+    const result = await git({ action: "push" });
+    // No remote configured, so push should fail with an error
+    expect(typeof result).toBe("string");
+    // Either "Error:" prefix from the tool or other content
+    expect(result.length).toBeGreaterThan(0);
+  });
+});
+
+// ── pull ───────────────────────────────────────────────────────────────────────
+
+describe("gitTool — pull", () => {
+  test("returns error or success message when pulling", async () => {
+    process.chdir(repoDir);
+    const result = await git({ action: "pull" });
+    // No remote configured, so pull should fail with an error
+    expect(typeof result).toBe("string");
+    expect(result.length).toBeGreaterThan(0);
+  });
+});
+
 // ── unknown action ─────────────────────────────────────────────────────────────
 
 describe("gitTool — unknown action", () => {

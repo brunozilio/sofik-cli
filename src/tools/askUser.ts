@@ -28,6 +28,11 @@ export function onAskUser(callback: (req: AskUserRequest) => void): void {
   _onAskUser = callback;
 }
 
+/** Reset the AskUser callback to null — used in tests to exercise the fallback path. */
+export function resetOnAskUser(): void {
+  _onAskUser = null;
+}
+
 export const askUserQuestionTool: ToolDefinition = {
   name: "AskUserQuestion",
   description:

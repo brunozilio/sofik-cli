@@ -256,6 +256,8 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
 
   const runAI = useCallback(
     async (msgs: Message[]): Promise<Message[]> => {
+      const requestId = crypto.randomUUID();
+      logger.setRequest(requestId);
       logger.app.info("runAI iniciado", { messageCount: msgs.length, model: getCurrentModel() });
       setStatus("thinking");
       setStatusLabel("");
@@ -314,9 +316,11 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
                 logger.permission.warn("Usuário negou ferramenta", { tool: toolName });
                 throw new Error(`Usuário negou permissão para ${toolName}`);
               }
+              logger.permission.info("Usuário aprovou ferramenta", { tool: toolName });
               approve(toolName, inp);
+            } else if (decision === "allow") {
+              logger.permission.debug("Ferramenta permitida automaticamente", { tool: toolName });
             }
-            // "allow" — proceed without asking
 
             flushText();
             evts.push({ type: "tool_use", name: toolName, input: inp });
@@ -389,7 +393,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         session.current.messages = resultMessages;
         saveSession(session.current);
         setTurnEvents([]);
-        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length, durationMs });
+        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length, durationMs, response: fullText.slice(0, 3000) });
       } catch (err) {
         const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"));
         if (!isAbort) {
@@ -410,6 +414,9 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         setPendingPermission(null);
       } finally {
         abortControllerRef.current = null;
+        logger.setRequest(undefined);
+        logger.setTurn(undefined);
+        logger.setToolCall(undefined);
       }
 
       setStatus("idle");
@@ -510,11 +517,11 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
   );
 
   // Shift+Tab: cycle permission mode (ask → plan → auto → ask)
-  // Uses raw \x1b[Z sequence directly to avoid Ink key-parsing differences on Linux.
+  // Handles both \x1b[Z (xterm/VT100) and \x1b\t (some SSH terminals on Linux).
   useEffect(() => {
     if (status !== "idle") return;
     const handler = (input: string) => {
-      if (input === "\x1b[Z") {
+      if (input === "\x1b[Z" || input === "\x1b\t") {
         const modes = ["ask", "plan", "auto"] as const;
         const idx = modes.indexOf(permMode as "ask" | "plan" | "auto");
         const next = modes[(idx + 1) % modes.length] as PermissionMode;
@@ -604,7 +611,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
       // Expand @mentions
       const expandedInput = await expandMentions(userInput);
 
-      logger.app.info("Mensagem do usuário recebida", { length: expandedInput.length, messageCount: messages.length });
+      logger.app.info("Mensagem do usuário recebida", { length: expandedInput.length, messageCount: messages.length, content: expandedInput.slice(0, 2000) });
 
       // Detect thinking keywords
       const budget = detectThinkingBudget(expandedInput);

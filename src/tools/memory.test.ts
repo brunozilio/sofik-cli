@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 
 import { updateMemoryTool, appendMemoryTool } from "./memory.ts";
-import { getProjectMemoryDir } from "../lib/session.ts";
+import { getProjectMemoryDir, ensureProjectMemoryPath } from "../lib/session.ts";
 
 // ── Temp dir setup ─────────────────────────────────────────────────────────────
 
@@ -195,5 +195,43 @@ describe("appendMemoryTool — execute", () => {
     await appendMemory({ content: "first" });
     const memPath = getMemoryPath();
     expect(fs.readFileSync(memPath, "utf-8")).toBe("first");
+  });
+});
+
+// ── Error handling ─────────────────────────────────────────────────────────────
+
+describe("updateMemoryTool — write error handling", () => {
+  test("returns error message when MEMORY.md path is a directory", async () => {
+    const memDir = getProjectMemoryDir(process.cwd());
+    fs.mkdirSync(memDir, { recursive: true });
+    const memPath = path.join(memDir, "MEMORY.md");
+
+    // Create a DIRECTORY at the MEMORY.md location so writeFileSync fails with EISDIR
+    fs.mkdirSync(memPath, { recursive: true });
+
+    try {
+      const result = await updateMemory({ content: "test content" });
+      expect(result).toContain("Erro ao atualizar memória:");
+    } finally {
+      fs.rmSync(memPath, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("appendMemoryTool — write error handling", () => {
+  test("returns error message when MEMORY.md path is a directory", async () => {
+    const memDir = getProjectMemoryDir(process.cwd());
+    fs.mkdirSync(memDir, { recursive: true });
+    const memPath = path.join(memDir, "MEMORY.md");
+
+    // Create a DIRECTORY at the MEMORY.md location so writeFileSync fails with EISDIR
+    fs.mkdirSync(memPath, { recursive: true });
+
+    try {
+      const result = await appendMemory({ content: "test content" });
+      expect(result).toContain("Erro ao adicionar à memória:");
+    } finally {
+      fs.rmSync(memPath, { recursive: true, force: true });
+    }
   });
 });

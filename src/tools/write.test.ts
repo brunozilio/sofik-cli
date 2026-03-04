@@ -151,3 +151,19 @@ describe("writeTool — line count", () => {
     expect(result.length).toBeGreaterThan(0);
   });
 });
+
+// ── Error handling ─────────────────────────────────────────────────────────────
+
+describe("writeTool — error handling", () => {
+  test("returns error message when mkdirSync fails (parent is a file)", async () => {
+    // Create a FILE where we'd need a DIRECTORY as parent
+    const parentFile = path.join(tmpDir, "i-am-a-file.txt");
+    fs.writeFileSync(parentFile, "I am a file, not a directory", "utf-8");
+
+    // Try to write to a path whose parent is this file (ENOTDIR)
+    const childPath = path.join(parentFile, "child.txt");
+    const result = await write({ file_path: childPath, content: "content" });
+
+    expect(result).toContain("Erro");
+  });
+});

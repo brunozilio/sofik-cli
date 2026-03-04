@@ -204,3 +204,23 @@ describe("editTool — diff output", () => {
     expect(result).not.toContain("linhas a mais");
   });
 });
+
+// ── Error handling ─────────────────────────────────────────────────────────────
+
+describe("editTool — write error handling", () => {
+  test("returns error message when writeFileSync fails (read-only file)", async () => {
+    const readonlyFile = tmpFile("readonly content to edit\n");
+    fs.chmodSync(readonlyFile, 0o444); // make read-only
+
+    try {
+      const result = await edit({
+        file_path: readonlyFile,
+        old_string: "readonly content to edit",
+        new_string: "new content",
+      });
+      expect(result).toContain("Erro ao escrever arquivo:");
+    } finally {
+      fs.chmodSync(readonlyFile, 0o644); // restore permissions
+    }
+  });
+});

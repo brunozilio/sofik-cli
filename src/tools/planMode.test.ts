@@ -7,6 +7,7 @@ import {
   enterPlanModeTool,
   exitPlanModeTool,
   onExitPlanMode,
+  resetOnExitPlanMode,
   type PlanApprovalRequest,
 } from "./planMode.ts";
 
@@ -285,5 +286,57 @@ describe("onExitPlanMode", () => {
     });
     await exitPlan({});
     expect(callCount).toBe(1);
+  });
+});
+
+// ── exitPlanModeTool — true fallback (callback = null) ─────────────────────────
+
+describe("exitPlanModeTool — true fallback (resetOnExitPlanMode)", () => {
+  beforeAll(() => {
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    // Reset so subsequent test suites get the auto-approve callback
+    onExitPlanMode((req) => req.resolve(true));
+    try { fs.rmSync(path.join(tmpDir, ".sofik"), { recursive: true }); } catch {}
+    try { fs.rmSync(path.join(tmpDir, "PLAN.md")); } catch {}
+  });
+
+  test("returns 'Plano pronto' fallback message when no callback and plan file exists", async () => {
+    writePlanFile();
+    resetOnExitPlanMode();
+    const result = await exitPlan({});
+    expect(result).toContain("Plano pronto");
+  });
+
+  test("fallback includes allowedPrompts when provided", async () => {
+    writePlanFile();
+    resetOnExitPlanMode();
+    const result = await exitPlan({
+      allowedPrompts: [
+        { tool: "Bash", prompt: "run tests" },
+        { tool: "Write", prompt: "write files" },
+      ],
+    });
+    expect(result).toContain("Bash");
+    expect(result).toContain("run tests");
+    expect(result).toContain("Write");
+    expect(result).toContain("write files");
+    expect(result).toContain("Permissões necessárias");
+  });
+
+  test("fallback without allowedPrompts has no permissions section", async () => {
+    writePlanFile();
+    resetOnExitPlanMode();
+    const result = await exitPlan({});
+    expect(result).not.toContain("Permissões necessárias");
+  });
+
+  test("fallback with empty allowedPrompts has no permissions section", async () => {
+    writePlanFile();
+    resetOnExitPlanMode();
+    const result = await exitPlan({ allowedPrompts: [] });
+    expect(result).not.toContain("Permissões necessárias");
   });
 });

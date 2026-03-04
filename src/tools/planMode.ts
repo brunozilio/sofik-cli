@@ -22,6 +22,11 @@ export function onExitPlanMode(callback: (req: PlanApprovalRequest) => void): vo
   _onExitPlanMode = callback;
 }
 
+/** Reset the plan mode callback to null — used in tests to exercise the fallback path. */
+export function resetOnExitPlanMode(): void {
+  _onExitPlanMode = null;
+}
+
 // ─── Tools ─────────────────────────────────────────────────────────────────
 
 export const enterPlanModeTool: ToolDefinition = {

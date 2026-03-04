@@ -15,6 +15,7 @@ import {
   getProjectMemoryDir,
   loadProjectMemory,
   ensureProjectMemoryPath,
+  appendMessageToSession,
 } from "./session.ts";
 import type { Session } from "./session.ts";
 
@@ -505,5 +506,85 @@ describe("ensureProjectMemoryPath", () => {
     createdMemoryDirs.push(memDir);
     ensureProjectMemoryPath(fakeCwd);
     expect(() => ensureProjectMemoryPath(fakeCwd)).not.toThrow();
+  });
+});
+
+// ─── appendMessageToSession ───────────────────────────────────────────────────
+
+describe("appendMessageToSession", () => {
+  test("appends a message to an existing JSONL session file", () => {
+    const session = makeSession("claude-opus-4-6");
+    saveSession(session);
+
+    const msg = { role: "user" as const, content: "appended message" };
+    appendMessageToSession(session.id, msg);
+
+    const loaded = loadSession(session.id);
+    expect(loaded).not.toBeNull();
+    const allContent = loaded!.messages.map((m) =>
+      typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+    ).join(" ");
+    expect(allContent).toContain("appended message");
+  });
+
+  test("does not throw when append succeeds silently (function never throws)", () => {
+    const session = makeSession("claude-opus-4-6");
+    saveSession(session);
+    // appendMessageToSession is always silent — test it doesn't propagate errors
+    expect(() =>
+      appendMessageToSession(session.id, { role: "user", content: "silent" })
+    ).not.toThrow();
+  });
+
+  test("appended messages are included in subsequent loadSession calls", () => {
+    const session = makeSession("claude-sonnet-4-6");
+    session.messages = [{ role: "user", content: "initial" }];
+    saveSession(session);
+
+    appendMessageToSession(session.id, { role: "assistant", content: "response" });
+
+    const loaded = loadSession(session.id);
+    expect(loaded).not.toBeNull();
+    const texts = loaded!.messages.map((m) => m.content);
+    expect(texts).toContain("response");
+  });
+});
+
+// ─── loadProjectMemory — truncation ───────────────────────────────────────────
+
+describe("loadProjectMemory — truncation at 200 lines", () => {
+  test("truncates MEMORY.md that has more than 200 lines", () => {
+    const fakeCwd = path.join(os.tmpdir(), `trunc-${Date.now()}`);
+    const memDir = getProjectMemoryDir(fakeCwd);
+    createdMemoryDirs.push(memDir);
+    fs.mkdirSync(memDir, { recursive: true });
+
+    // Write 250 lines
+    const lines = Array.from({ length: 250 }, (_, i) => `Line ${i + 1}`);
+    fs.writeFileSync(path.join(memDir, "MEMORY.md"), lines.join("\n"), "utf-8");
+
+    const result = loadProjectMemory(fakeCwd);
+    expect(result).not.toBeNull();
+    // Should contain only first 200 lines
+    expect(result).toContain("Line 1");
+    expect(result).toContain("Line 200");
+    expect(result).not.toContain("Line 201");
+    // Should contain truncation notice
+    expect(result).toContain("truncated at 200 lines");
+  });
+
+  test("does not truncate MEMORY.md with exactly 200 lines", () => {
+    const fakeCwd = path.join(os.tmpdir(), `exact200-${Date.now()}`);
+    const memDir = getProjectMemoryDir(fakeCwd);
+    createdMemoryDirs.push(memDir);
+    fs.mkdirSync(memDir, { recursive: true });
+
+    const lines = Array.from({ length: 200 }, (_, i) => `Line ${i + 1}`);
+    fs.writeFileSync(path.join(memDir, "MEMORY.md"), lines.join("\n"), "utf-8");
+
+    const result = loadProjectMemory(fakeCwd);
+    expect(result).not.toBeNull();
+    expect(result).not.toContain("truncated");
+    expect(result).toContain("Line 200");
   });
 });

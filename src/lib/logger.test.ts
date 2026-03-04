@@ -19,13 +19,16 @@ function today(): string {
 }
 
 function readLog(cat: string): LogEntry[] {
-  const file = join(LOG_DIR, `${today()}-${cat}.log`);
+  const file = join(LOG_DIR, `${today()}.log`);
   if (!existsSync(file)) return [];
-  return readFileSync(file, "utf-8")
+  const all = readFileSync(file, "utf-8")
     .trim()
     .split("\n")
     .filter(Boolean)
     .map((l) => JSON.parse(l) as LogEntry);
+  // "error" pseudo-category: all entries with level=error (replaces the old separate error.log)
+  if (cat === "error") return all.filter((e) => e.level === "error" || e.cat === "error");
+  return all.filter((e) => e.cat === cat);
 }
 
 function lastEntry(cat: string): LogEntry | undefined {

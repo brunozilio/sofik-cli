@@ -37,6 +37,9 @@ export interface OAuthToken {
   scope?: string;
 }
 
+// ── In-memory token cache ─────────────────────────────────────────────────────
+let _tokenCache: OAuthToken | null = null;
+
 // ── PKCE helpers ──────────────────────────────────────────────────────────────
 function generateCodeVerifier(): string {
   return randomBytes(32).toString("base64url");
@@ -48,9 +51,11 @@ function generateCodeChallenge(verifier: string): string {
 
 // ── Token persistence ─────────────────────────────────────────────────────────
 export function loadToken(): OAuthToken | null {
+  if (_tokenCache !== null) return _tokenCache;
   try {
     const raw = fs.readFileSync(TOKEN_PATH, "utf-8");
     const token = JSON.parse(raw) as OAuthToken;
+    _tokenCache = token;
     logger.auth.debug("Token OAuth carregado do disco");
     return token;
   } catch {
@@ -59,9 +64,15 @@ export function loadToken(): OAuthToken | null {
 }
 
 function saveToken(token: OAuthToken): void {
+  _tokenCache = token;
   fs.mkdirSync(path.dirname(TOKEN_PATH), { recursive: true });
   fs.writeFileSync(TOKEN_PATH, JSON.stringify(token, null, 2), "utf-8");
   logger.auth.info("Token OAuth salvo", { expiresAt: token.expires_at ? new Date(token.expires_at).toISOString() : null });
+}
+
+/** Clear the in-memory token cache — used in tests. */
+export function clearTokenCache(): void {
+  _tokenCache = null;
 }
 
 // ── SSH detection ─────────────────────────────────────────────────────────────
@@ -388,6 +399,12 @@ export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
 
   if (!res.ok) {
     logger.auth.error("Falha ao renovar token", { status: res.status, statusText: res.statusText });
+    // 400 = refresh token inválido/revogado — limpa o token para forçar novo login
+    if (res.status === 400) {
+      _tokenCache = null;
+      try { fs.unlinkSync(TOKEN_PATH); } catch { /* já removido */ }
+      logger.auth.warn("Token removido do disco — refresh inválido (400). Use /login para autenticar.");
+    }
     throw new Error(`Token refresh failed: ${res.statusText}`);
   }
 
@@ -568,6 +585,7 @@ export async function loginCopilot(
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 export function logout(): void {
+  _tokenCache = null;
   try {
     fs.unlinkSync(TOKEN_PATH);
     logger.auth.info("Logout realizado — token removido");

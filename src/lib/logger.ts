@@ -1,8 +1,8 @@
 /**
  * Centralized structured logger for Sofik AI.
  *
- * Writes JSON Lines (one JSON object per line) to:
- *   ~/.sofik-ai/logs/YYYY-MM-DD-<category>.log
+ * Writes JSON Lines (one JSON object per line) to a single file:
+ *   ~/.sofik/logs/YYYY-MM-DD.log
  *
  * Categories: app | llm | tool | permission | session | db | auth | job | mcp | error
  * Levels:     debug | info | warn | error
@@ -36,6 +36,9 @@ export interface LogEntry {
   level: LogLevel;
   cat: LogCategory;
   session?: string;
+  req?: string;    // per-runAI request ID
+  turn?: number;   // LLM turn within the request
+  toolId?: string; // tool_use_id from the LLM call
   msg: string;
   data?: Record<string, unknown>;
 }
@@ -45,6 +48,9 @@ export interface LogEntry {
 export const LOG_DIR = join(os.homedir(), ".sofik", "logs");
 
 let _sessionId: string | undefined;
+let _requestId: string | undefined;
+let _turnId: number | undefined;
+let _toolCallId: string | undefined;
 let _dirReady = false;
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -72,27 +78,19 @@ function write(cat: LogCategory, level: LogLevel, msg: string, data?: Record<str
     level,
     cat,
     ..._sessionId ? { session: _sessionId } : {},
+    ..._requestId ? { req: _requestId } : {},
+    ..._turnId !== undefined ? { turn: _turnId } : {},
+    ..._toolCallId ? { toolId: _toolCallId } : {},
     msg,
     ...(data && Object.keys(data).length > 0 ? { data } : {}),
   };
 
   const line = JSON.stringify(entry) + "\n";
-  const day = datestamp();
 
-  // Write to category-specific file
   try {
-    appendFileSync(join(LOG_DIR, `${day}-${cat}.log`), line);
+    appendFileSync(join(LOG_DIR, `${datestamp()}.log`), line);
   } catch {
     // Silent — never crash the app because of logging
-  }
-
-  // Also mirror errors to the unified error log
-  if (level === "error" && cat !== "error") {
-    try {
-      appendFileSync(join(LOG_DIR, `${day}-error.log`), line);
-    } catch {
-      // Silent
-    }
   }
 }
 
@@ -103,6 +101,21 @@ export function setLogSession(id: string): void {
   _sessionId = id;
 }
 
+/** Set the active request ID (one per runAI() call; cleared on completion) */
+export function setLogRequest(id: string | undefined): void {
+  _requestId = id;
+}
+
+/** Set the current LLM turn number within the active request */
+export function setLogTurn(turn: number | undefined): void {
+  _turnId = turn;
+}
+
+/** Set the current tool_use_id being executed (cleared after tool completes) */
+export function setLogToolCall(id: string | undefined): void {
+  _toolCallId = id;
+}
+
 /** Get the current log directory path */
 export function getLogDir(): string {
   return LOG_DIR;
@@ -111,10 +124,11 @@ export function getLogDir(): string {
 // ── Convenience methods per category ─────────────────────────────────────────
 
 export const logger = {
-  // ── Session management ────────────────────────────────────────────────────
-  setSession(id: string) {
-    setLogSession(id);
-  },
+  // ── Correlation context ───────────────────────────────────────────────────
+  setSession(id: string) { setLogSession(id); },
+  setRequest(id: string | undefined) { setLogRequest(id); },
+  setTurn(turn: number | undefined) { setLogTurn(turn); },
+  setToolCall(id: string | undefined) { setLogToolCall(id); },
 
   // ── Generic ──────────────────────────────────────────────────────────────
   debug(msg: string, data?: Record<string, unknown>) {

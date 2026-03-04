@@ -1,6 +1,6 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 
-import { askUserQuestionTool, onAskUser, type AskUserRequest } from "./askUser.ts";
+import { askUserQuestionTool, onAskUser, resetOnAskUser, type AskUserRequest } from "./askUser.ts";
 
 async function askUser(input: Record<string, unknown>): Promise<string> {
   return askUserQuestionTool.execute!(input) as Promise<string>;
@@ -284,5 +284,123 @@ describe("onAskUser", () => {
 
     expect(firstCalled).toBe(false);
     expect(secondCalled).toBe(true);
+  });
+});
+
+// ── True fallback path (no callback registered) ────────────────────────────────
+
+describe("askUserQuestionTool — no callback fallback", () => {
+  beforeEach(() => {
+    resetOnAskUser();
+  });
+
+  test("returns Portuguese fallback text when no callback is registered", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "What do you want?",
+          header: "Want",
+          options: [{ label: "A" }, { label: "B" }],
+        },
+      ],
+    });
+    expect(result).toContain("Por favor, responda o seguinte");
+  });
+
+  test("fallback text includes the question text", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "Which color?",
+          header: "Color",
+          options: [{ label: "Red" }, { label: "Blue" }],
+        },
+      ],
+    });
+    expect(result).toContain("Which color?");
+  });
+
+  test("fallback text includes all option labels", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "Pick one?",
+          header: "Pick",
+          options: [
+            { label: "Alpha", description: "First" },
+            { label: "Beta", description: "Second" },
+          ],
+        },
+      ],
+    });
+    expect(result).toContain("Alpha");
+    expect(result).toContain("Beta");
+  });
+
+  test("fallback text includes option descriptions when present", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "Approach?",
+          header: "Approach",
+          options: [
+            { label: "Simple", description: "Easy and fast" },
+            { label: "Complex", description: "More powerful" },
+          ],
+        },
+      ],
+    });
+    expect(result).toContain("Easy and fast");
+    expect(result).toContain("More powerful");
+  });
+
+  test("fallback text mentions no interactive UI available", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "Confirm?",
+          header: "Confirm",
+          options: [{ label: "Yes" }, { label: "No" }],
+        },
+      ],
+    });
+    expect(result).toContain("usuário deve responder manualmente");
+  });
+
+  test("fallback handles multiple questions", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "Q1?",
+          header: "Q1",
+          options: [{ label: "A" }, { label: "B" }],
+        },
+        {
+          question: "Q2?",
+          header: "Q2",
+          options: [{ label: "C" }, { label: "D" }],
+        },
+      ],
+    });
+    expect(result).toContain("Q1?");
+    expect(result).toContain("Q2?");
+    expect(result).toContain("A");
+    expect(result).toContain("C");
+  });
+
+  test("fallback option without description has no dash separator", async () => {
+    const result = await askUser({
+      questions: [
+        {
+          question: "Pick?",
+          header: "Pick",
+          options: [{ label: "OnlyLabel" }, { label: "Other" }],
+        },
+      ],
+    });
+    // Option with no description should not have " — " before empty string
+    const optionLine = result.split("\n").find((l: string) => l.includes("OnlyLabel"));
+    expect(optionLine).toBeDefined();
+    expect(optionLine).not.toContain(" — ");
   });
 });

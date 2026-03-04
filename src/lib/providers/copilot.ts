@@ -173,6 +173,7 @@ export class CopilotProvider implements LLMProvider {
 
     while (true) {
       turnCount++;
+      logger.setTurn(turnCount);
       // Refresh token each turn (cached; re-fetches only when near expiry)
       const token = await getCopilotToken();
       const body = {
@@ -323,6 +324,16 @@ export class CopilotProvider implements LLMProvider {
       if (fullText) assistantContent.push({ type: "text", text: fullText });
 
       const toolUses = Array.from(toolCallsMap.values());
+
+      logger.llm.info("Copilot: turno concluído", {
+        model,
+        turn: turnCount,
+        finishReason,
+        toolCount: toolUses.length,
+        ...(fullText ? { response: fullText.slice(0, 3000) } : {}),
+        ...(toolUses.length > 0 ? { toolCalls: toolUses.map((t) => ({ name: t.name, id: t.id, input: t.args.slice(0, 500) })) } : {}),
+      });
+
       for (const tc of toolUses) {
         let input: unknown = {};
         try { input = JSON.parse(tc.args || "{}"); } catch { /* empty */ }
@@ -350,17 +361,20 @@ export class CopilotProvider implements LLMProvider {
           logger.tool.warn("Copilot: ferramenta desconhecida", { toolName: tc.name });
         } else {
           const toolT0 = Date.now();
-          logger.tool.info("Copilot: ferramenta iniciada", { toolName: tc.name });
+          logger.setToolCall(tc.id);
+          logger.tool.info("Copilot: ferramenta iniciada", { toolName: tc.name, id: tc.id });
           try {
             const { runPreToolUseHooks, runPostToolUseHooks } = await import("../hooks.ts");
             await runPreToolUseHooks(tc.name, input);
             resultContent = await tool.execute(input as Record<string, unknown>);
             await runPostToolUseHooks(tc.name, input, resultContent);
-            logger.tool.info("Copilot: ferramenta concluída", { toolName: tc.name, durationMs: Date.now() - toolT0, resultLength: resultContent.length });
+            logger.tool.info("Copilot: ferramenta concluída", { toolName: tc.name, id: tc.id, durationMs: Date.now() - toolT0, resultLength: resultContent.length, result: resultContent.slice(0, 3000) });
           } catch (err) {
             resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
             isError = true;
-            logger.tool.error("Copilot: ferramenta erro", { toolName: tc.name, error: resultContent, durationMs: Date.now() - toolT0 });
+            logger.tool.error("Copilot: ferramenta erro", { toolName: tc.name, id: tc.id, error: resultContent, durationMs: Date.now() - toolT0 });
+          } finally {
+            logger.setToolCall(undefined);
           }
         }
 

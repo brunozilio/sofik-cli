@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 
 import { bashTool } from "./bash.ts";
+import { backgroundTaskRegistry } from "../lib/backgroundTasks.ts";
 
 async function bash(input: Record<string, unknown>): Promise<string> {
   return bashTool.execute!(input) as Promise<string>;
@@ -158,5 +159,128 @@ describe("bashTool — error handling", () => {
     // Either "not found" in stderr or exit code
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
+  }, 10000);
+});
+
+// ── Background mode ────────────────────────────────────────────────────────────
+
+describe("bashTool — background mode", () => {
+  test("run_in_background: true returns valid JSON", async () => {
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    expect(() => JSON.parse(result)).not.toThrow();
+  }, 10000);
+
+  test("returned JSON has taskId starting with 'bash-'", async () => {
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    const parsed = JSON.parse(result);
+    expect(parsed.taskId).toMatch(/^bash-/);
+  }, 10000);
+
+  test("initial status is 'running'", async () => {
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    const parsed = JSON.parse(result);
+    expect(parsed.status).toBe("running");
+  }, 10000);
+
+  test("response includes outputFile path with agent-output", async () => {
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    const parsed = JSON.parse(result);
+    expect(typeof parsed.outputFile).toBe("string");
+    expect(parsed.outputFile).toContain("agent-output");
+  }, 10000);
+
+  test("response message references the taskId", async () => {
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    const parsed = JSON.parse(result);
+    expect(parsed.message).toContain(parsed.taskId);
+  }, 10000);
+
+  test("task is registered in backgroundTaskRegistry with type 'bash'", async () => {
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId);
+    expect(task).toBeDefined();
+    expect(task!.type).toBe("bash");
+    expect(task!.taskId).toBe(parsed.taskId);
+  }, 10000);
+
+  test("background task completes with correct output", async () => {
+    const result = await bash({ command: "echo bgoutput123", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    const output = await task.promise;
+    expect(output).toContain("bgoutput123");
+  }, 15000);
+
+  test("task status becomes 'completed' after successful exit", async () => {
+    const result = await bash({ command: "echo done", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    await task.promise;
+    expect(task.status).toBe("completed");
+  }, 15000);
+
+  test("task status becomes 'failed' on non-zero exit", async () => {
+    const result = await bash({ command: "exit 1", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    await task.promise;
+    expect(task.status).toBe("failed");
+  }, 15000);
+
+  test("task uses provided description", async () => {
+    const result = await bash({
+      command: "echo hello",
+      description: "My background task",
+      run_in_background: true,
+    });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    expect(task.description).toBe("My background task");
+  }, 10000);
+
+  test("task uses command as description when none provided", async () => {
+    const result = await bash({ command: "echo no-desc", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    expect(task.description).toContain("echo no-desc");
+  }, 10000);
+
+  test("task captures stderr in background mode", async () => {
+    const result = await bash({ command: "echo errtext >&2", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    const output = await task.promise;
+    expect(output).toContain("errtext");
+  }, 15000);
+
+  test("task has startedAt timestamp", async () => {
+    const before = Date.now();
+    const result = await bash({ command: "echo hello", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    expect(task.startedAt).toBeGreaterThanOrEqual(before);
+  }, 10000);
+
+  test("task has endedAt after completion", async () => {
+    const result = await bash({ command: "echo done", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+    await task.promise;
+    expect(task.endedAt).toBeGreaterThan(0);
+  }, 15000);
+
+  test("aborting controller kills background process", async () => {
+    const result = await bash({ command: "sleep 30", run_in_background: true });
+    const parsed = JSON.parse(result);
+    const task = backgroundTaskRegistry.get(parsed.taskId)!;
+
+    // Trigger the abort event listener (line 109 in bash.ts)
+    task.controller.abort();
+
+    // Wait for the process to die and the promise to resolve
+    await task.promise;
+
+    expect(task.controller.signal.aborted).toBe(true);
   }, 10000);
 });

@@ -241,3 +241,24 @@ describe("multiEditTool — atomicity", () => {
     expect(fs.readFileSync(p, "utf-8")).toBe(original);
   });
 });
+
+// ── Error handling ─────────────────────────────────────────────────────────────
+
+describe("multiEditTool — write error handling", () => {
+  test("returns error message when writeFileSync fails (read-only file)", async () => {
+    const p = tmpFile("content to edit\n");
+    fs.chmodSync(p, 0o444); // read-only
+
+    try {
+      const result = await multiEdit({
+        edits: [
+          { file_path: p, old_string: "content to edit", new_string: "new content" },
+        ],
+      });
+      // Should include an error for the failed write
+      expect(result).toContain("Erro ao escrever");
+    } finally {
+      fs.chmodSync(p, 0o644);
+    }
+  });
+});

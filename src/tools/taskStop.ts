@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../lib/types.ts";
 import { backgroundTaskRegistry } from "../lib/backgroundTasks.ts";
+import { logger } from "../lib/logger.ts";
 
 export const taskStopTool: ToolDefinition = {
   name: "TaskStop",
@@ -22,6 +23,7 @@ export const taskStopTool: ToolDefinition = {
 
     const task = backgroundTaskRegistry.get(taskId);
     if (!task) {
+      logger.tool.warn("TaskStop: tarefa não encontrada", { taskId });
       return JSON.stringify({
         success: false,
         error: `Task not found: "${taskId}". Only tasks started in the current session are tracked.`,
@@ -29,6 +31,7 @@ export const taskStopTool: ToolDefinition = {
     }
 
     if (task.status !== "running") {
+      logger.tool.warn("TaskStop: tarefa não está em execução", { taskId, status: task.status });
       return JSON.stringify({
         success: false,
         error: `Task "${taskId}" is not running (status: ${task.status}).`,
@@ -37,6 +40,7 @@ export const taskStopTool: ToolDefinition = {
 
     task.status = "stopped";
     task.controller.abort();
+    logger.tool.info("TaskStop: tarefa parada", { taskId, description: task.description, type: task.type });
 
     return JSON.stringify({
       success: true,

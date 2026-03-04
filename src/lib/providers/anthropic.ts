@@ -210,6 +210,7 @@ export class AnthropicProvider implements LLMProvider {
     let turnIndex = 0;
     while (true) {
       turnIndex++;
+      logger.setTurn(turnIndex);
       const contentBlocks: LocalContentBlock[] = [];
       const thinkingBlocks: string[] = [];
 
@@ -218,12 +219,20 @@ export class AnthropicProvider implements LLMProvider {
       // Inject cache breakpoint on last user message
       injectCacheBreakpoint(apiMessages);
 
+      const lastApiMsg = apiMessages[apiMessages.length - 1] as { role: string; content: unknown } | undefined;
+      const lastMsgSummary = lastApiMsg
+        ? (typeof lastApiMsg.content === "string"
+            ? lastApiMsg.content.slice(0, 1000)
+            : JSON.stringify(lastApiMsg.content).slice(0, 1000))
+        : undefined;
+
       logger.llm.info("Requisição LLM iniciada", {
         model: currentModel,
         turn: turnIndex,
         messageCount: apiMessages.length,
         toolCount: apiTools.length,
         thinkingBudget,
+        lastMessage: lastMsgSummary,
       });
 
       const reqStart = Date.now();
@@ -341,6 +350,7 @@ export class AnthropicProvider implements LLMProvider {
           } else if (type === "content_block_stop") {
             if (isInThinkingBlock && currentThinkingText) {
               thinkingBlocks.push(currentThinkingText);
+              logger.llm.debug("Modelo pensando", { text: currentThinkingText.slice(0, 3000) });
               onThinking?.(currentThinkingText);
               currentThinkingText = "";
               isInThinkingBlock = false;
@@ -445,7 +455,19 @@ export class AnthropicProvider implements LLMProvider {
         (b): b is Extract<LocalContentBlock, { type: "tool_use" }> => b.type === "tool_use"
       );
 
-      logger.llm.info("Turno LLM concluído", { model: currentModel, stopReason, toolUseCount: toolUses.length, turn: turnIndex });
+      const turnText = contentBlocks
+        .filter((b): b is Extract<LocalContentBlock, { type: "text" }> => b.type === "text")
+        .map((b) => b.text)
+        .join("");
+
+      logger.llm.info("Turno LLM concluído", {
+        model: currentModel,
+        stopReason,
+        toolUseCount: toolUses.length,
+        turn: turnIndex,
+        ...(turnText ? { response: turnText.slice(0, 3000) } : {}),
+        ...(toolUses.length > 0 ? { toolCalls: toolUses.map((t) => ({ name: t.name, id: t.id, input: JSON.stringify(t.input).slice(0, 500) })) } : {}),
+      });
 
       if (stopReason !== "tool_use" || toolUses.length === 0) {
         // If max_tokens hit mid-tool-use, add placeholder tool_results and
@@ -491,6 +513,7 @@ export class AnthropicProvider implements LLMProvider {
           logger.tool.error("Ferramenta desconhecida", { tool: toolUse.name, id: toolUse.id });
         } else {
           const toolStart = Date.now();
+          logger.setToolCall(toolUse.id);
           logger.tool.info("Executando ferramenta", {
             tool: toolUse.name,
             id: toolUse.id,
@@ -509,6 +532,7 @@ export class AnthropicProvider implements LLMProvider {
               id: toolUse.id,
               durationMs: Date.now() - toolStart,
               resultLength: resultContent.length,
+              result: resultContent.slice(0, 3000),
             });
           } catch (err) {
             resultContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
@@ -519,6 +543,8 @@ export class AnthropicProvider implements LLMProvider {
               durationMs: Date.now() - toolStart,
               error: resultContent,
             });
+          } finally {
+            logger.setToolCall(undefined);
           }
         }
 

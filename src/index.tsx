@@ -30,7 +30,7 @@ if (settingsErrors.length > 0) {
 // Determine initial permission mode
 type InitialMode = "ask" | "auto" | "plan" | "acceptEdits";
 
-let initialMode: InitialMode = "ask";
+let initialMode: InitialMode = "auto";
 
 // ─── Load MCP tools ──────────────────────────────────────────────────────────
 

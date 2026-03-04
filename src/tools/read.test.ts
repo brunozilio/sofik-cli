@@ -241,3 +241,25 @@ describe("readTool — path resolution", () => {
     expect(result).toContain("absolute content");
   });
 });
+
+// ── Path traversal protection ───────────────────────────────────────────────────
+
+describe("readTool — path traversal protection", () => {
+  test("returns error when path is outside allowed directories", async () => {
+    // /etc/passwd is outside cwd, homedir, tmpdir, and /tmp on any Unix system
+    const result = await read({ file_path: "/etc/passwd" });
+    expect(result).toContain("Erro");
+    expect(result.toLowerCase()).toMatch(/path traversal|denied|outside/i);
+  });
+
+  test("error message includes the denied path", async () => {
+    const result = await read({ file_path: "/etc/shadow" });
+    expect(result).toContain("/etc/shadow");
+  });
+
+  test("error message is a non-empty string", async () => {
+    const result = await read({ file_path: "/etc/hosts" });
+    expect(typeof result).toBe("string");
+    expect(result.length).toBeGreaterThan(0);
+  });
+});

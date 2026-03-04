@@ -53,8 +53,9 @@ afterAll(() => {
   }
 });
 
-// Remove any token files before each test so we start clean
+// Remove any token files and clear in-memory cache before each test
 beforeEach(() => {
+  clearTokenCache();
   try { fs.unlinkSync(TOKEN_PATH); } catch { /* ok if missing */ }
   try { fs.unlinkSync(COPILOT_TOKEN_PATH); } catch { /* ok if missing */ }
 });
@@ -72,6 +73,7 @@ import {
   refreshToken,
   loginCopilot,
   login,
+  clearTokenCache,
 } from "./oauth.ts";
 import type { OAuthToken, CopilotToken } from "./oauth.ts";
 
@@ -268,6 +270,7 @@ describe("refreshToken", () => {
 
   afterEach(() => {
     globalThis.fetch = _originalFetch;
+    clearTokenCache();
     try { fs.unlinkSync(TOKEN_PATH); } catch { /* ok */ }
   });
 
@@ -326,6 +329,21 @@ describe("refreshToken", () => {
 
     const token: OAuthToken = { access_token: "old", refresh_token: "rt-bad" };
     await expect(refreshToken(token)).rejects.toThrow();
+  });
+
+  test("400 response removes token from disk and throws", async () => {
+    // @ts-ignore
+    globalThis.fetch = async () =>
+      new Response("Bad Request", { status: 400, statusText: "Bad Request" });
+
+    const token: OAuthToken = { access_token: "old", refresh_token: "rt-expired" };
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(token), "utf-8");
+
+    await expect(refreshToken(token)).rejects.toThrow("Token refresh failed: Bad Request");
+    // Token file must be deleted after 400
+    expect(fs.existsSync(TOKEN_PATH)).toBe(false);
+    // Cache must be cleared — loadToken() should return null
+    expect(loadToken()).toBeNull();
   });
 
   test("getValidToken refreshes and returns token when expired and refresh_token present", async () => {
@@ -476,6 +494,7 @@ describe("login", () => {
 
   afterEach(() => {
     globalThis.fetch = _origFetch;
+    clearTokenCache();
     delete process.env.SSH_CLIENT;
     try { fs.unlinkSync(TOKEN_PATH); } catch { /* ok */ }
   });
