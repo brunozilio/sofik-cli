@@ -37,14 +37,22 @@ function authHeaders(token: string): Record<string, string> {
 
 // ── SSE parser ────────────────────────────────────────────────────────────────
 
-async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<Record<string, unknown>> {
+async function* parseSSE(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<Record<string, unknown>> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
 
+  const onAbort = () => { reader.cancel().catch(() => {}); };
+  signal?.addEventListener('abort', onAbort, { once: true });
+
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("StreamStallError")), 60_000)
+        ),
+      ]);
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -57,6 +65,7 @@ async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<Recor
       }
     }
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     reader.releaseLock();
   }
 }
@@ -85,6 +94,7 @@ export class AnthropicProvider implements LLMProvider {
     onToolResult,
     signal,
     systemOverride,
+    maxTurns,
   }: StreamParams): AsyncGenerator<string> {
     const modelInfo = MODELS[model] ?? { maxOutput: 8096 };
     const token = await resolveToken();
@@ -142,62 +152,128 @@ export class AnthropicProvider implements LLMProvider {
 
       let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
       let stopReason = "end_turn";
+      let usedStreamingFallback = false;
 
-      for await (const event of parseSSE(response.body!)) {
-        const type = event.type as string;
+      try {
+        for await (const event of parseSSE(response.body!, signal)) {
+          const type = event.type as string;
 
-        if (type === "message_start") {
-          const usage = (event.message as { usage?: RawUsage })?.usage;
-          if (usage) {
-            addUsage(usage);
-            logger.llm.info("Uso de tokens (início)", {
-              model,
-              inputTokens: usage.input_tokens ?? 0,
-              cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-              cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
-            });
-          }
-        } else if (type === "content_block_start") {
-          const block = event.content_block as { type: string; id?: string; name?: string };
-          if (block.type === "text") {
-            contentBlocks.push({ type: "text", text: "" });
-          } else if (block.type === "tool_use") {
-            currentToolUse = { id: block.id!, name: block.name!, inputJson: "" };
-            contentBlocks.push({ type: "tool_use", id: block.id!, name: block.name!, input: {} });
-            logger.llm.info("LLM invocando ferramenta", { tool: block.name, id: block.id });
-          }
-        } else if (type === "content_block_delta") {
-          const delta = event.delta as { type: string; text?: string; partial_json?: string };
-          if (delta.type === "text_delta" && delta.text) {
-            const last = contentBlocks[contentBlocks.length - 1];
-            if (last?.type === "text") last.text += delta.text;
-            yield delta.text;
-          } else if (delta.type === "input_json_delta" && currentToolUse && delta.partial_json) {
-            currentToolUse.inputJson += delta.partial_json;
+          if (type === "message_start") {
+            const usage = (event.message as { usage?: RawUsage })?.usage;
+            if (usage) {
+              addUsage(usage);
+              logger.llm.info("Uso de tokens (início)", {
+                model,
+                inputTokens: usage.input_tokens ?? 0,
+                cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+                cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+              });
+            }
+          } else if (type === "content_block_start") {
+            const block = event.content_block as { type: string; id?: string; name?: string };
+            if (block.type === "text") {
+              contentBlocks.push({ type: "text", text: "" });
+            } else if (block.type === "tool_use") {
+              currentToolUse = { id: block.id!, name: block.name!, inputJson: "" };
+              contentBlocks.push({ type: "tool_use", id: block.id!, name: block.name!, input: {} });
+              logger.llm.info("LLM invocando ferramenta", { tool: block.name, id: block.id });
+            }
+          } else if (type === "content_block_delta") {
+            const delta = event.delta as { type: string; text?: string; partial_json?: string };
+            if (delta.type === "text_delta" && delta.text) {
+              const last = contentBlocks[contentBlocks.length - 1];
+              if (last?.type === "text") last.text += delta.text;
+              yield delta.text;
+            } else if (delta.type === "input_json_delta" && currentToolUse && delta.partial_json) {
+              currentToolUse.inputJson += delta.partial_json;
+              const last = contentBlocks[contentBlocks.length - 1];
+              if (last?.type === "tool_use") {
+                try { last.input = JSON.parse(currentToolUse.inputJson); } catch { /* accumulating */ }
+              }
+            }
+          } else if (type === "content_block_stop" && currentToolUse) {
             const last = contentBlocks[contentBlocks.length - 1];
             if (last?.type === "tool_use") {
-              try { last.input = JSON.parse(currentToolUse.inputJson); } catch { /* accumulating */ }
+              try { last.input = JSON.parse(currentToolUse.inputJson || "{}"); } catch { /* leave */ }
+            }
+            currentToolUse = null;
+          } else if (type === "message_delta") {
+            const delta = event.delta as { stop_reason?: string };
+            stopReason = delta.stop_reason ?? "end_turn";
+            const usage = (event as { usage?: RawUsage }).usage;
+            if (usage) {
+              addUsage(usage);
+              logger.llm.info("Uso de tokens (fim do turno)", {
+                model,
+                stopReason,
+                outputTokens: usage.output_tokens ?? 0,
+              });
             }
           }
-        } else if (type === "content_block_stop" && currentToolUse) {
-          const last = contentBlocks[contentBlocks.length - 1];
-          if (last?.type === "tool_use") {
-            try { last.input = JSON.parse(currentToolUse.inputJson || "{}"); } catch { /* leave */ }
-          }
-          currentToolUse = null;
-        } else if (type === "message_delta") {
-          const delta = event.delta as { stop_reason?: string };
-          stopReason = delta.stop_reason ?? "end_turn";
-          const usage = (event as { usage?: RawUsage }).usage;
-          if (usage) {
-            addUsage(usage);
-            logger.llm.info("Uso de tokens (fim do turno)", {
-              model,
-              stopReason,
-              outputTokens: usage.output_tokens ?? 0,
-            });
+        }
+      } catch (streamErr) {
+        const isStall = streamErr instanceof Error && streamErr.message === "StreamStallError";
+        const isNetwork = streamErr instanceof TypeError;
+        if (!isStall && !isNetwork) throw streamErr;
+        if (usedStreamingFallback) throw streamErr;
+        usedStreamingFallback = true;
+
+        logger.llm.warn("Stream falhou, usando non-streaming fallback", { model, error: streamErr instanceof Error ? streamErr.message : String(streamErr) });
+
+        // Reset partial state and retry without streaming
+        contentBlocks.length = 0;
+        currentToolUse = null;
+        stopReason = "end_turn";
+
+        const fallbackResponse = await fetchWithProxy(`${BASE_URL}/messages`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model,
+            max_tokens: modelInfo.maxOutput,
+            system: [{ type: "text", text: systemOverride ?? buildSystemPrompt(), cache_control: { type: "ephemeral" } }],
+            messages: apiMessages,
+            tools: apiTools,
+          }),
+          signal: signal ?? undefined,
+        });
+
+        if (!fallbackResponse.ok) {
+          const errText = await fallbackResponse.text();
+          throw new Error(`${fallbackResponse.status} ${errText}`);
+        }
+
+        interface NonStreamingBlock {
+          type: string;
+          text?: string;
+          id?: string;
+          name?: string;
+          input?: unknown;
+        }
+        interface NonStreamingResponse {
+          content: NonStreamingBlock[];
+          stop_reason?: string;
+          usage?: RawUsage;
+        }
+
+        const json = await fallbackResponse.json() as NonStreamingResponse;
+        stopReason = json.stop_reason ?? "end_turn";
+        if (json.usage) addUsage(json.usage);
+
+        for (const block of json.content) {
+          if (block.type === "text" && block.text) {
+            contentBlocks.push({ type: "text", text: block.text });
+            yield block.text;
+          } else if (block.type === "tool_use" && block.id && block.name) {
+            contentBlocks.push({ type: "tool_use", id: block.id, name: block.name, input: block.input ?? {} });
           }
         }
+      }
+
+      if (signal?.aborted) {
+        const err = new Error("The operation was aborted");
+        err.name = "AbortError";
+        throw err;
       }
 
       apiMessages.push({ role: "assistant", content: contentBlocks });
@@ -208,7 +284,26 @@ export class AnthropicProvider implements LLMProvider {
 
       logger.llm.info("Turno LLM concluído", { model, stopReason, toolUseCount: toolUses.length, turn: turnIndex });
 
-      if (stopReason !== "tool_use" || toolUses.length === 0) break;
+      if (stopReason !== "tool_use" || toolUses.length === 0) {
+        // If max_tokens hit mid-tool-use, add placeholder tool_results so the
+        // conversation history stays valid for the next user message.
+        if (stopReason === "max_tokens" && toolUses.length > 0) {
+          logger.llm.warn("max_tokens atingido durante tool_use — adicionando tool_results de erro", {
+            model, toolCount: toolUses.length,
+          });
+          apiMessages.push({
+            role: "user",
+            content: toolUses.map((t) => ({
+              type: "tool_result",
+              tool_use_id: t.id,
+              content: "Error: Response truncated due to max_tokens limit.",
+              is_error: true,
+            })),
+          });
+        }
+        break;
+      }
+      if (maxTurns !== undefined && turnIndex >= maxTurns) break;
 
       // Phase 1: Sequential permission checks
       for (const toolUse of toolUses) {
@@ -239,7 +334,10 @@ export class AnthropicProvider implements LLMProvider {
             const { runPreToolUseHooks, runPostToolUseHooks } = await import("../hooks.ts");
             await runPreToolUseHooks(toolUse.name, toolUse.input);
             resultContent = await tool.execute(toolUse.input as Record<string, unknown>);
-            await runPostToolUseHooks(toolUse.name, toolUse.input, resultContent);
+            const hookFeedback = await runPostToolUseHooks(toolUse.name, toolUse.input, resultContent);
+            if (hookFeedback) {
+              resultContent += `\n\n[Hook feedback]:\n${hookFeedback}`;
+            }
             logger.tool.info("Ferramenta concluída", {
               tool: toolUse.name,
               id: toolUse.id,

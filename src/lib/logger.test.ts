@@ -38,7 +38,7 @@ function lastEntry(cat: string): LogEntry | undefined {
 describe("LOG_DIR and getLogDir()", () => {
   test("LOG_DIR is under the user home directory", () => {
     expect(LOG_DIR).toContain(os.homedir());
-    expect(LOG_DIR).toContain(".sofik-ai");
+    expect(LOG_DIR).toContain(".sofik");
     expect(LOG_DIR).toContain("logs");
   });
 

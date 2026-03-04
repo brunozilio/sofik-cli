@@ -42,7 +42,7 @@ export interface LogEntry {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-export const LOG_DIR = join(os.homedir(), ".sofik-ai", "logs");
+export const LOG_DIR = join(os.homedir(), ".sofik", "logs");
 
 let _sessionId: string | undefined;
 let _dirReady = false;

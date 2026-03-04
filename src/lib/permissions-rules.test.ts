@@ -2,54 +2,56 @@
  * permissions-rules.test.ts
  *
  * Tests for rule evaluation (specifierMatches / evaluateRules) and
- * acceptEdits mode. These tests write temporary settings files to
- * inject permission rules without mocking the module system.
+ * acceptEdits mode. Uses a temp directory for settings isolation so there
+ * are no race conditions with settings.test.ts and no mock.module bleed.
  */
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import fs from "node:fs";
-import path from "node:path";
+import { test, expect, describe, beforeEach, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// ─── Temp dir isolation ───────────────────────────────────────────────────────
+
+const TEST_DIR = mkdtempSync(join(tmpdir(), "sofik-perm-rules-"));
+const ORIG_CWD = process.cwd();
+
+import { invalidateSettingsCache } from "./settings.ts";
 import {
   setPermissionMode,
   checkPermission,
   detectDangerousCommand,
+  approve,
 } from "./permissions.ts";
-import { invalidateSettingsCache } from "./settings.ts";
 
-// ─── Helpers: temporary settings management ──────────────────────────────────
+beforeAll(() => {
+  mkdirSync(join(TEST_DIR, ".sofik"), { recursive: true });
+  writeFileSync(join(TEST_DIR, ".sofik", "settings.json"), "{}", "utf-8");
+  process.chdir(TEST_DIR);
+  invalidateSettingsCache();
+});
 
-const SETTINGS_DIR = path.join(process.cwd(), ".sofik");
-const SETTINGS_FILE = path.join(SETTINGS_DIR, "settings.json");
+afterAll(() => {
+  process.chdir(ORIG_CWD);
+  invalidateSettingsCache();
+  rmSync(TEST_DIR, { recursive: true });
+});
 
-let _originalSettings: string | null = null;
+// ─── Reset between tests ──────────────────────────────────────────────────────
 
 beforeEach(() => {
-  // Backup existing settings file (it only has { "model": "..." })
-  try {
-    _originalSettings = fs.readFileSync(SETTINGS_FILE, "utf-8");
-  } catch {
-    _originalSettings = null;
-  }
   setPermissionMode("ask");
+  writeFileSync(join(TEST_DIR, ".sofik", "settings.json"), "{}", "utf-8");
   invalidateSettingsCache();
 });
 
-afterEach(() => {
-  // Restore original settings
-  if (_originalSettings !== null) {
-    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, _originalSettings, "utf-8");
-  } else {
-    try {
-      fs.unlinkSync(SETTINGS_FILE);
-    } catch {}
-  }
-  invalidateSettingsCache();
-  setPermissionMode("ask");
-});
+// ─── Helper: inject rules ─────────────────────────────────────────────────────
 
-function writeRules(rules: Array<{ type: string; rule: string }>) {
-  fs.mkdirSync(SETTINGS_DIR, { recursive: true });
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ permissions: rules }), "utf-8");
+function withRules(rules: Array<{ type: "allow" | "deny" | "ask"; rule: string }>) {
+  writeFileSync(
+    join(TEST_DIR, ".sofik", "settings.json"),
+    JSON.stringify({ permissions: rules }),
+    "utf-8",
+  );
   invalidateSettingsCache();
 }
 
@@ -101,22 +103,22 @@ describe("acceptEdits mode", () => {
 
 describe("settings rules — Bash tool", () => {
   test("'allow' rule for Bash allows any bash command", () => {
-    writeRules([{ type: "allow", rule: "Bash" }]);
+    withRules([{ type: "allow", rule: "Bash" }]);
     expect(checkPermission("Bash", { command: "rm -rf /tmp/test" })).toBe("allow");
   });
 
   test("'deny' rule for Bash denies any bash command", () => {
-    writeRules([{ type: "deny", rule: "Bash" }]);
+    withRules([{ type: "deny", rule: "Bash" }]);
     expect(checkPermission("Bash", { command: "ls" })).toBe("deny");
   });
 
   test("'ask' rule for Bash returns 'ask'", () => {
-    writeRules([{ type: "ask", rule: "Bash" }]);
+    withRules([{ type: "ask", rule: "Bash" }]);
     expect(checkPermission("Bash", { command: "echo hi" })).toBe("ask");
   });
 
   test("rule for different tool does not match Bash", () => {
-    writeRules([{ type: "allow", rule: "Read" }]);
+    withRules([{ type: "allow", rule: "Read" }]);
     // No matching rule → falls through to default ask-mode
     expect(checkPermission("Bash", { command: "ls" })).toBe("ask");
   });
@@ -126,38 +128,37 @@ describe("settings rules — Bash tool", () => {
 
 describe("settings rules — Bash colon specifier", () => {
   test("Bash(git:*) matches 'git status'", () => {
-    writeRules([{ type: "allow", rule: "Bash(git:*)" }]);
+    withRules([{ type: "allow", rule: "Bash(git:*)" }]);
     expect(checkPermission("Bash", { command: "git status" })).toBe("allow");
   });
 
   test("Bash(git:*) matches 'git commit -m hello'", () => {
-    writeRules([{ type: "allow", rule: "Bash(git:*)" }]);
+    withRules([{ type: "allow", rule: "Bash(git:*)" }]);
     expect(checkPermission("Bash", { command: "git commit -m hello" })).toBe("allow");
   });
 
   test("Bash(git:*) does NOT match 'npm install'", () => {
-    writeRules([{ type: "allow", rule: "Bash(git:*)" }]);
-    // No rule match → falls through to default ask
+    withRules([{ type: "allow", rule: "Bash(git:*)" }]);
     expect(checkPermission("Bash", { command: "npm install" })).toBe("ask");
   });
 
   test("Bash(git:*) matches bare 'git' command (no args)", () => {
-    writeRules([{ type: "allow", rule: "Bash(git:*)" }]);
+    withRules([{ type: "allow", rule: "Bash(git:*)" }]);
     expect(checkPermission("Bash", { command: "git" })).toBe("allow");
   });
 
   test("Bash(npm:install) matches 'npm install' exactly", () => {
-    writeRules([{ type: "allow", rule: "Bash(npm:install)" }]);
+    withRules([{ type: "allow", rule: "Bash(npm:install)" }]);
     expect(checkPermission("Bash", { command: "npm install" })).toBe("allow");
   });
 
   test("Bash(npm:install) does NOT match 'npm run dev'", () => {
-    writeRules([{ type: "allow", rule: "Bash(npm:install)" }]);
+    withRules([{ type: "allow", rule: "Bash(npm:install)" }]);
     expect(checkPermission("Bash", { command: "npm run dev" })).toBe("ask");
   });
 
   test("deny Bash(rm:*) denies 'rm -rf /tmp'", () => {
-    writeRules([{ type: "deny", rule: "Bash(rm:*)" }]);
+    withRules([{ type: "deny", rule: "Bash(rm:*)" }]);
     expect(checkPermission("Bash", { command: "rm -rf /tmp" })).toBe("deny");
   });
 });
@@ -166,12 +167,12 @@ describe("settings rules — Bash colon specifier", () => {
 
 describe("settings rules — Bash plain prefix specifier", () => {
   test("Bash(git) matches command starting with 'git'", () => {
-    writeRules([{ type: "allow", rule: "Bash(git)" }]);
+    withRules([{ type: "allow", rule: "Bash(git)" }]);
     expect(checkPermission("Bash", { command: "git status" })).toBe("allow");
   });
 
   test("Bash(git) does NOT match 'echo git'", () => {
-    writeRules([{ type: "allow", rule: "Bash(git)" }]);
+    withRules([{ type: "allow", rule: "Bash(git)" }]);
     expect(checkPermission("Bash", { command: "echo git" })).toBe("ask");
   });
 });
@@ -180,38 +181,37 @@ describe("settings rules — Bash plain prefix specifier", () => {
 
 describe("settings rules — Edit glob specifier", () => {
   test("Edit(src/**) allows editing a file under src/", () => {
-    writeRules([{ type: "allow", rule: "Edit(src/**)" }]);
+    withRules([{ type: "allow", rule: "Edit(src/**)" }]);
     expect(checkPermission("Edit", { file_path: "src/lib/foo.ts" })).toBe("allow");
   });
 
   test("Edit(src/**) does NOT match docs/readme.md", () => {
-    writeRules([{ type: "allow", rule: "Edit(src/**)" }]);
+    withRules([{ type: "allow", rule: "Edit(src/**)" }]);
     expect(checkPermission("Edit", { file_path: "docs/readme.md" })).toBe("ask");
   });
 
   test("Edit(src/**) matches nested path src/a/b/c.ts", () => {
-    writeRules([{ type: "allow", rule: "Edit(src/**)" }]);
+    withRules([{ type: "allow", rule: "Edit(src/**)" }]);
     expect(checkPermission("Edit", { file_path: "src/a/b/c.ts" })).toBe("allow");
   });
 
   test("deny Edit(*.secret) denies editing a .secret file", () => {
-    writeRules([{ type: "deny", rule: "Edit(*.secret)" }]);
+    withRules([{ type: "deny", rule: "Edit(*.secret)" }]);
     expect(checkPermission("Edit", { file_path: "config.secret" })).toBe("deny");
   });
 
   test("Write rule uses file_path specifier", () => {
-    writeRules([{ type: "allow", rule: "Write(tmp/**)" }]);
+    withRules([{ type: "allow", rule: "Write(tmp/**)" }]);
     expect(checkPermission("Write", { file_path: "tmp/output.txt" })).toBe("allow");
   });
 
   test("Read rule uses file_path specifier", () => {
-    writeRules([{ type: "allow", rule: "Read(docs/**)" }]);
-    // Read is already allowed in ask mode, but the rule should still match
+    withRules([{ type: "allow", rule: "Read(docs/**)" }]);
     expect(checkPermission("Read", { file_path: "docs/guide.md" })).toBe("allow");
   });
 
   test("Edit exact path match (no glob)", () => {
-    writeRules([{ type: "allow", rule: "Edit(/etc/hosts)" }]);
+    withRules([{ type: "allow", rule: "Edit(/etc/hosts)" }]);
     expect(checkPermission("Edit", { file_path: "/etc/hosts" })).toBe("allow");
   });
 });
@@ -220,20 +220,19 @@ describe("settings rules — Edit glob specifier", () => {
 
 describe("settings rules — WebFetch URL specifier", () => {
   test("WebFetch(https://api.example.com) allows that exact URL prefix", () => {
-    writeRules([{ type: "allow", rule: "WebFetch(https://api.example.com)" }]);
+    withRules([{ type: "allow", rule: "WebFetch(https://api.example.com)" }]);
     expect(checkPermission("WebFetch", { url: "https://api.example.com/v1/data" })).toBe("allow");
   });
 
   test("WebFetch specifier does NOT match a different domain", () => {
-    writeRules([{ type: "allow", rule: "WebFetch(https://api.example.com)" }]);
+    withRules([{ type: "allow", rule: "WebFetch(https://api.example.com)" }]);
     // No rule match → allow anyway (WebFetch is a safe tool in ask mode)
     const decision = checkPermission("WebFetch", { url: "https://evil.com" });
-    // Falls through to default: WebFetch is not in DANGEROUS_TOOLS, so it's allowed
     expect(decision).toBe("allow");
   });
 
   test("WebFetch glob pattern matches URL", () => {
-    writeRules([{ type: "deny", rule: "WebFetch(https://blocked.com/*)" }]);
+    withRules([{ type: "deny", rule: "WebFetch(https://blocked.com/*)" }]);
     expect(checkPermission("WebFetch", { url: "https://blocked.com/page" })).toBe("deny");
   });
 });
@@ -242,12 +241,12 @@ describe("settings rules — WebFetch URL specifier", () => {
 
 describe("settings rules — WebSearch specifier", () => {
   test("WebSearch(safe *) allows queries matching the glob", () => {
-    writeRules([{ type: "allow", rule: "WebSearch(safe *)" }]);
+    withRules([{ type: "allow", rule: "WebSearch(safe *)" }]);
     expect(checkPermission("WebSearch", { query: "safe query here" })).toBe("allow");
   });
 
   test("WebSearch specifier does NOT match a non-matching query", () => {
-    writeRules([{ type: "allow", rule: "WebSearch(safe *)" }]);
+    withRules([{ type: "allow", rule: "WebSearch(safe *)" }]);
     // No match → falls through to default allow (WebSearch is not dangerous)
     expect(checkPermission("WebSearch", { query: "random stuff" })).toBe("allow");
   });
@@ -257,14 +256,12 @@ describe("settings rules — WebSearch specifier", () => {
 
 describe("settings rules — unknown tool with specifier", () => {
   test("unknown tool with specifier: specifier always matches (returns true)", () => {
-    // For tools not explicitly handled in specifierMatches, the specifier is
-    // treated as "matches everything" — so the rule applies.
-    writeRules([{ type: "deny", rule: "SomeCustomTool(any-pattern)" }]);
+    withRules([{ type: "deny", rule: "SomeCustomTool(any-pattern)" }]);
     expect(checkPermission("SomeCustomTool", { foo: "bar" })).toBe("deny");
   });
 
   test("unknown tool without specifier: rule matches by tool name", () => {
-    writeRules([{ type: "allow", rule: "SomeCustomTool" }]);
+    withRules([{ type: "allow", rule: "SomeCustomTool" }]);
     expect(checkPermission("SomeCustomTool", {})).toBe("allow");
   });
 });
@@ -273,15 +270,12 @@ describe("settings rules — unknown tool with specifier", () => {
 
 describe("rule string parsing edge cases", () => {
   test("rule with no parentheses matches tool name exactly", () => {
-    writeRules([{ type: "allow", rule: "Bash" }]);
+    withRules([{ type: "allow", rule: "Bash" }]);
     expect(checkPermission("Bash", { command: "ls" })).toBe("allow");
   });
 
   test("rule that does not match the regex falls back to treating entire string as tool name", () => {
-    // A rule like "Bash(some(nested))" doesn't match \w+(\(.+\))? cleanly
-    // but the parser falls back to { tool: ruleStr, specifier: null }
-    // so it won't match "Bash" exactly — no rule fires, default ask applies
-    writeRules([{ type: "allow", rule: "Bash-special!" }]);
+    withRules([{ type: "allow", rule: "Bash-special!" }]);
     expect(checkPermission("Bash", { command: "ls" })).toBe("ask");
   });
 });
@@ -290,7 +284,7 @@ describe("rule string parsing edge cases", () => {
 
 describe("rule evaluation order — first matching rule wins", () => {
   test("first rule wins: allow before deny", () => {
-    writeRules([
+    withRules([
       { type: "allow", rule: "Bash(git:*)" },
       { type: "deny", rule: "Bash" },
     ]);
@@ -298,11 +292,10 @@ describe("rule evaluation order — first matching rule wins", () => {
   });
 
   test("first rule wins: deny before allow", () => {
-    writeRules([
+    withRules([
       { type: "deny", rule: "Bash" },
       { type: "allow", rule: "Bash(git:*)" },
     ]);
-    // Bash matches the deny rule first
     expect(checkPermission("Bash", { command: "git status" })).toBe("deny");
   });
 });

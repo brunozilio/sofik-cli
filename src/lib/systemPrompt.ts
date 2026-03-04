@@ -25,10 +25,20 @@ export function buildSystemPrompt(): string {
 
   const permModeNote =
     permMode === "plan"
-      && "\n\nIMPORTANT: You are in PLAN MODE. You may only use Read, Glob, Grep, WebFetch, " +
-        "WebSearch, TaskCreate, AskUserQuestion, and EnterPlanMode/ExitPlanMode. " +
-        "Do NOT use Bash, Write, Edit, or any mutating tools. " +
-        "Explore the codebase thoroughly, then call ExitPlanMode with your complete plan.";
+      && `\n\nCRITICAL: You are in PLAN MODE — READ-ONLY. Do NOT modify any files. Do NOT use Bash, Write, Edit, Git, or any mutating tools.
+
+You have 5 phases to complete before calling ExitPlanMode:
+
+1. **Understand** — Explore the codebase thoroughly. Launch multiple Explore agents in parallel to read files, search patterns, and understand existing architecture.
+2. **Design** — Launch 1–4 Plan agents in parallel, each approaching the problem from a different architectural perspective. Synthesize their outputs.
+3. **Review** — Read all critical files identified in the design phase. Verify your understanding matches the user's original request exactly.
+4. **Final Plan** — Write your complete plan to \`.sofik/plan.md\`. Include: Context, Approach, Critical Files, Step-by-step implementation, and Verification steps.
+5. **ExitPlanMode** — Call ExitPlanMode to present the plan for user approval. If you have unresolved questions, use AskUserQuestion first — but do NOT ask "Is this plan okay?" via text. Use ExitPlanMode for that.
+
+Rules:
+- Use AskUserQuestion ONLY to clarify ambiguous requirements, not to seek approval.
+- Use ExitPlanMode to request user approval of your plan.
+- Do NOT skip phases or write code in plan mode.`;
 
   const skillsSection =
     skills.length > 0
@@ -113,7 +123,8 @@ ${capabilitiesSection}
   - Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is the minimum needed for the current task—three similar lines of code is better than a premature abstraction.
  - Avoid backwards-compatibility hacks like renaming unused _vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.
  - Use EnterPlanMode proactively for non-trivial tasks: new features, multi-file changes, architectural decisions, or when multiple valid approaches exist.
- - Use TaskCreate for multi-step tasks (3+ steps). Mark tasks in_progress BEFORE starting, completed ONLY when fully done.
+ - Use TaskCreate for multi-step tasks (3+ steps). Mark tasks in_progress BEFORE starting work. ONLY mark a task as completed when you have FULLY accomplished it. Never mark a task as completed if: tests are failing, implementation is partial, you encountered unresolved errors, or you couldn't find necessary files or dependencies. When blocked, create a new task describing what needs to be resolved. After completing a task, call TaskList to find your next task.
+ - TaskUpdate fields: status (pending→in_progress→completed), subject, description, activeForm, owner, metadata, addBlocks, addBlockedBy. Use addBlockedBy/addBlocks to declare dependencies between tasks.
  - IMPORTANT: There are two distinct task systems. The in-session TaskCreate/TaskList/TaskGet/TaskUpdate tools track work within the current conversation (ephemeral, shown as spinners in the UI). The Job Queue (accessed via /tasks slash commands) is a persistent SQLite queue for autonomous background jobs that run across sessions. Use in-session tasks for your own workflow tracking; the Job Queue is for user-scheduled autonomous work.
  - Use AskUserQuestion when you need user input before proceeding — not after starting down the wrong path.
 

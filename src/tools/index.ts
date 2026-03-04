@@ -6,6 +6,7 @@ import { editTool } from "./edit.ts";
 import { globTool } from "./glob.ts";
 import { grepTool } from "./grep.ts";
 import { agentTool } from "./agent.ts";
+import { taskOutputTool } from "./taskOutput.ts";
 import { webFetchTool } from "./webfetch.ts";
 import { webSearchTool } from "./websearch.ts";
 import { notebookEditTool, notebookReadTool } from "./notebook.ts";
@@ -51,6 +52,7 @@ const toolRegistry: ToolDefinition[] = [
   appendMemoryTool,
   // Subagents
   agentTool,
+  taskOutputTool,
   // User interaction
   askUserQuestionTool,
   // Integrations

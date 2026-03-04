@@ -17,7 +17,7 @@ import path from "path";
 import os from "os";
 import { logger } from "./logger.ts";
 
-type HookType = "bash" | "http";
+type HookType = "bash" | "http" | "agent";
 
 interface BashHook {
   type: "bash";
@@ -29,7 +29,19 @@ interface HttpHook {
   url: string;
 }
 
-type Hook = BashHook | HttpHook;
+interface AgentHook {
+  type: "agent";
+  /** Prompt template — may reference {{TOOL_NAME}}, {{TOOL_INPUT}}, {{TOOL_RESULT}} */
+  prompt: string;
+  /** Default: claude-haiku-4-5-20251001 */
+  model?: string;
+  /** Tool names available to the agent. Default: READ_ONLY_TOOLS + Bash */
+  tools?: string[];
+  /** Timeout in seconds. Default: 60 */
+  timeout?: number;
+}
+
+type Hook = BashHook | HttpHook | AgentHook;
 
 interface HookEntry {
   matcher: { tools?: string[] };
@@ -75,7 +87,9 @@ function matchesTool(entry: HookEntry, toolName: string): boolean {
   );
 }
 
-async function runHook(hook: Hook, context: Record<string, string>): Promise<void> {
+const DEFAULT_AGENT_HOOK_TOOLS = ["Read", "Glob", "Grep", "WebFetch", "WebSearch", "Bash"];
+
+async function runHook(hook: Hook, context: Record<string, string>): Promise<string | undefined> {
   if (hook.type === "bash") {
     const env: Record<string, string> = { ...process.env as Record<string, string>, ...context };
     try {
@@ -84,6 +98,7 @@ async function runHook(hook: Hook, context: Record<string, string>): Promise<voi
     } catch (err) {
       logger.app.warn("Hook bash falhou (best-effort)", { command: hook.command.slice(0, 100), error: err instanceof Error ? err.message : String(err) });
     }
+    return undefined;
   } else if (hook.type === "http") {
     try {
       logger.app.debug("Hook HTTP enviado", { url: hook.url, tool: context.TOOL_NAME });
@@ -96,7 +111,34 @@ async function runHook(hook: Hook, context: Record<string, string>): Promise<voi
     } catch (err) {
       logger.app.warn("Hook HTTP falhou (best-effort)", { url: hook.url, error: err instanceof Error ? err.message : String(err) });
     }
+    return undefined;
+  } else if (hook.type === "agent") {
+    const timeoutMs = (hook.timeout ?? 60) * 1000;
+    const model = hook.model ?? "claude-haiku-4-5-20251001";
+    const toolNames = hook.tools ?? DEFAULT_AGENT_HOOK_TOOLS;
+    // Interpolate context variables into the prompt
+    const prompt = hook.prompt
+      .replace(/\{\{TOOL_NAME\}\}/g, context.TOOL_NAME ?? "")
+      .replace(/\{\{TOOL_INPUT\}\}/g, context.TOOL_INPUT ?? "")
+      .replace(/\{\{TOOL_RESULT\}\}/g, context.TOOL_RESULT ?? "");
+    try {
+      logger.app.debug("Hook agent iniciado", { tool: context.TOOL_NAME, model });
+      // Dynamic import to avoid circular dependency
+      const { runSimpleAgent } = await import("../../tools/agent.ts");
+      const result = await Promise.race([
+        runSimpleAgent({ prompt, model, toolNames }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("AgentHookTimeout")), timeoutMs)
+        ),
+      ]);
+      logger.app.info("Hook agent concluído", { tool: context.TOOL_NAME, outputLength: result.length });
+      return result;
+    } catch (err) {
+      logger.app.warn("Hook agent falhou (best-effort)", { tool: context.TOOL_NAME, error: err instanceof Error ? err.message : String(err) });
+      return undefined;
+    }
   }
+  return undefined;
 }
 
 export async function runPreToolUseHooks(toolName: string, input: unknown): Promise<void> {
@@ -116,15 +158,21 @@ export async function runPostToolUseHooks(
   toolName: string,
   input: unknown,
   result: string
-): Promise<void> {
+): Promise<string | undefined> {
   const config = getHooks();
-  if (!config.PostToolUse) return;
+  if (!config.PostToolUse) return undefined;
   const ctx = { TOOL_NAME: toolName, TOOL_INPUT: JSON.stringify(input), TOOL_RESULT: result.slice(0, 500) };
   let ran = 0;
+  const feedbackParts: string[] = [];
   for (const entry of config.PostToolUse) {
     if (matchesTool(entry, toolName)) {
-      for (const hook of entry.hooks) { await runHook(hook, ctx); ran++; }
+      for (const hook of entry.hooks) {
+        const feedback = await runHook(hook, ctx);
+        if (feedback) feedbackParts.push(feedback);
+        ran++;
+      }
     }
   }
   if (ran > 0) logger.app.info("PostToolUseHooks executados", { tool: toolName, hooksRan: ran });
+  return feedbackParts.length > 0 ? feedbackParts.join("\n\n") : undefined;
 }

@@ -190,57 +190,71 @@ export class CopilotProvider implements LLMProvider {
       const decoder = new TextDecoder();
       let buffer = "";
 
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const onAbort = () => { reader.cancel().catch(() => {}); };
+      signal?.addEventListener('abort', onAbort, { once: true });
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+      try {
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") break outer;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
 
-          let chunk: {
-            choices?: Array<{
-              delta?: {
-                content?: string;
-                tool_calls?: Array<{
-                  index?: number;
-                  id?: string;
-                  function?: { name?: string; arguments?: string };
-                }>;
-              };
-              finish_reason?: string | null;
-            }>;
-          };
-          try { chunk = JSON.parse(data); } catch { continue; }
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") break outer;
 
-          const choice = chunk.choices?.[0];
-          if (!choice) continue;
+            let chunk: {
+              choices?: Array<{
+                delta?: {
+                  content?: string;
+                  tool_calls?: Array<{
+                    index?: number;
+                    id?: string;
+                    function?: { name?: string; arguments?: string };
+                  }>;
+                };
+                finish_reason?: string | null;
+              }>;
+            };
+            try { chunk = JSON.parse(data); } catch { continue; }
 
-          if (choice.finish_reason) finishReason = choice.finish_reason;
-          const delta = choice.delta;
-          if (!delta) continue;
+            const choice = chunk.choices?.[0];
+            if (!choice) continue;
 
-          if (delta.content) {
-            fullText += delta.content;
-            yield delta.content;
-          }
+            if (choice.finish_reason) finishReason = choice.finish_reason;
+            const delta = choice.delta;
+            if (!delta) continue;
 
-          for (const tc of delta.tool_calls ?? []) {
-            const idx = tc.index ?? 0;
-            if (!toolCallsMap.has(idx)) {
-              toolCallsMap.set(idx, { id: "", name: "", args: "" });
+            if (delta.content) {
+              fullText += delta.content;
+              yield delta.content;
             }
-            const entry = toolCallsMap.get(idx)!;
-            if (tc.id)                  entry.id   += tc.id;
-            if (tc.function?.name)      entry.name += tc.function.name;
-            if (tc.function?.arguments) entry.args += tc.function.arguments;
+
+            for (const tc of delta.tool_calls ?? []) {
+              const idx = tc.index ?? 0;
+              if (!toolCallsMap.has(idx)) {
+                toolCallsMap.set(idx, { id: "", name: "", args: "" });
+              }
+              const entry = toolCallsMap.get(idx)!;
+              if (tc.id)                  entry.id   += tc.id;
+              if (tc.function?.name)      entry.name += tc.function.name;
+              if (tc.function?.arguments) entry.args += tc.function.arguments;
+            }
           }
         }
+      } finally {
+        signal?.removeEventListener('abort', onAbort);
+        reader.releaseLock();
+      }
+
+      if (signal?.aborted) {
+        const err = new Error("The operation was aborted");
+        err.name = "AbortError";
+        throw err;
       }
 
       if (toolCallsMap.size === 0 || finishReason !== "tool_calls") break;

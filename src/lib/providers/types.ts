@@ -9,6 +9,8 @@ export interface StreamParams {
   signal?: AbortSignal;
   /** Override the system prompt. If omitted, providers call buildSystemPrompt() internally. */
   systemOverride?: string;
+  /** Stop after this many agentic turns (LLM→tool→LLM cycles). Unlimited if omitted. */
+  maxTurns?: number;
 }
 
 export interface LLMProvider {
