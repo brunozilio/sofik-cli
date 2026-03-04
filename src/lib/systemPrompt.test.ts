@@ -169,9 +169,9 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("Always respond in Portuguese");
   });
 
-  test("without language: no language section", () => {
+  test("without language: defaults to Portuguese (Brazilian)", () => {
     const result = buildSystemPrompt();
-    expect(result).not.toContain("Always respond in");
+    expect(result).toContain("Always respond in Portuguese (Brazilian)");
   });
 
   test("with brevity strict: contains CRITICAL and Go straight to the point", () => {

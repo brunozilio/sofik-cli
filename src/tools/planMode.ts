@@ -39,12 +39,24 @@ export const enterPlanModeTool: ToolDefinition = {
   },
   async execute(_input) {
     logger.app.info("EnterPlanMode ativado");
-    return (
-      "Modo de planejamento ativado. Você pode explorar o código livremente usando " +
-      "Read, Glob, Grep, WebFetch, WebSearch e TaskCreate. " +
-      "Ferramentas de mutação (Bash, Write, Edit) estão desabilitadas até que o usuário aprove seu plano. " +
-      "Quando estiver pronto, chame ExitPlanMode com seu plano completo."
-    );
+    return `Modo de planejamento ativado. Você está agora em modo SOMENTE LEITURA.
+
+OBRIGATÓRIO: Complete TODAS as 5 fases antes de chamar ExitPlanMode. NÃO pule fases.
+
+1. EXPLORAR — Explore o código em profundidade. Use Read, Glob, Grep, WebFetch, WebSearch. Faça múltiplas buscas em paralelo. Leia os arquivos críticos. Entenda a arquitetura existente antes de projetar qualquer coisa.
+
+2. PROJETAR — Considere 2–3 abordagens de implementação diferentes. Analise os trade-offs. Escolha a melhor e documente o raciocínio.
+
+3. ESCLARECER — Se houver requisitos ambíguos ou precisar de informações do usuário, use AskUserQuestion AGORA, dentro do modo de planejamento. Faça TODAS as perguntas aqui. Após a aprovação do ExitPlanMode, execute sem fazer mais perguntas.
+
+4. ESCREVER O PLANO — Escreva seu plano completo em .sofik/plan.md. Inclua: Contexto, Abordagem escolhida, Arquivos críticos a alterar, Implementação passo a passo e Etapas de verificação. Este arquivo é obrigatório.
+
+5. ExitPlanMode — Chame SOMENTE após escrever o arquivo de plano. NÃO chame com um plano vazio ou trivial.
+
+Ferramentas disponíveis: Read, Glob, Grep, WebFetch, WebSearch, TaskCreate, AskUserQuestion.
+Ferramentas de mutação (Bash, Write, Edit, Git) estão DESABILITADAS até o usuário aprovar seu plano.
+
+Comece pela fase 1: explore o código.`;
   },
 };
 
@@ -97,6 +109,17 @@ export const exitPlanModeTool: ToolDefinition = {
         planContent = fs.readFileSync(p, "utf-8");
         break;
       } catch { /* continue */ }
+    }
+
+    // Rejeitar planos triviais/vazios — o modelo deve escrever um plano real primeiro
+    const isDefaultContent = planContent === "Plano pronto para revisão.";
+    if (isDefaultContent || planContent.trim().length < 100) {
+      logger.app.warn("ExitPlanMode rejeitado — plano não escrito ou muito curto", { planLength: planContent.trim().length });
+      return (
+        "ERRO: Nenhum arquivo de plano encontrado ou o plano é muito curto. " +
+        "Você deve escrever seu plano completo em .sofik/plan.md (ou PLAN.md) antes de chamar ExitPlanMode. " +
+        "Volte à fase 4 e escreva o plano primeiro, depois chame ExitPlanMode novamente."
+      );
     }
 
     if (_onExitPlanMode) {

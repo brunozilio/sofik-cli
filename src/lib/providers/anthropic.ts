@@ -465,7 +465,6 @@ export class AnthropicProvider implements LLMProvider {
           });
           if (maxTurns !== undefined && turnIndex >= maxTurns) break;
           contentBlocks.length = 0;
-          turnIndex++;
           continue;
         }
         break;

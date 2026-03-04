@@ -41,6 +41,19 @@ async function exitPlan(input: Record<string, unknown> = {}): Promise<string> {
   return exitPlanModeTool.execute!(input) as Promise<string>;
 }
 
+/** Write a realistic plan file so the guard (>150 chars) passes.
+ *  Uses process.cwd() to match macOS /var→/private/var symlink resolution. */
+function writePlanFile(content?: string): void {
+  const cwd = process.cwd();
+  fs.mkdirSync(path.join(cwd, ".sofik"), { recursive: true });
+  fs.writeFileSync(
+    path.join(cwd, ".sofik", "plan.md"),
+    content ??
+      "# Implementation Plan\n\n## Context\nThis plan covers the implementation of the requested feature.\n\n## Approach\nWe will follow a step-by-step approach.\n\n## Steps\n1. Read existing code\n2. Make changes\n3. Run tests\n",
+    "utf-8"
+  );
+}
+
 // ── enterPlanModeTool metadata ─────────────────────────────────────────────────
 
 describe("enterPlanModeTool metadata", () => {
@@ -162,6 +175,7 @@ describe("exitPlanModeTool — fallback (no UI callback)", () => {
 describe("exitPlanModeTool — with UI callback", () => {
   test("approved plan returns approval message", async () => {
     process.chdir(tmpDir);
+    writePlanFile();
     onExitPlanMode((req: PlanApprovalRequest) => {
       req.resolve(true);
     });
@@ -174,6 +188,7 @@ describe("exitPlanModeTool — with UI callback", () => {
 
   test("rejected plan returns rejection message", async () => {
     process.chdir(tmpDir);
+    writePlanFile();
     onExitPlanMode((req: PlanApprovalRequest) => {
       req.resolve(false);
     });
@@ -183,6 +198,7 @@ describe("exitPlanModeTool — with UI callback", () => {
 
   test("callback receives plan content", async () => {
     process.chdir(tmpDir);
+    writePlanFile();
     let receivedContent = "";
     onExitPlanMode((req: PlanApprovalRequest) => {
       receivedContent = req.planContent;
@@ -195,6 +211,7 @@ describe("exitPlanModeTool — with UI callback", () => {
 
   test("callback receives allowedPrompts", async () => {
     process.chdir(tmpDir);
+    writePlanFile();
     let receivedPrompts: Array<{ tool: string; prompt: string }> | undefined;
     onExitPlanMode((req: PlanApprovalRequest) => {
       receivedPrompts = req.allowedPrompts;
@@ -215,8 +232,9 @@ describe("exitPlanModeTool — with UI callback", () => {
 describe("exitPlanModeTool — plan file reading", () => {
   test("reads .sofik/plan.md when it exists", async () => {
     process.chdir(tmpDir);
-    fs.mkdirSync(path.join(tmpDir, ".sofik"), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, ".sofik", "plan.md"), "# My Plan\nStep 1\nStep 2\n", "utf-8");
+    writePlanFile(
+      "# My Plan\n\n## Context\nDetailed plan for the feature.\n\n## Steps\nStep 1: Read existing code\nStep 2: Implement changes\nStep 3: Run tests and verify\n"
+    );
 
     let planContent = "";
     onExitPlanMode((req: PlanApprovalRequest) => {
@@ -230,7 +248,11 @@ describe("exitPlanModeTool — plan file reading", () => {
 
   test("reads PLAN.md when .sofik/plan.md does not exist", async () => {
     process.chdir(tmpDir);
-    fs.writeFileSync(path.join(tmpDir, "PLAN.md"), "# PLAN\nDo things\n", "utf-8");
+    fs.writeFileSync(
+      path.join(tmpDir, "PLAN.md"),
+      "# PLAN\n\n## Approach\nDo things step by step.\n\n## Implementation\n1. Read files\n2. Make changes\n3. Test the results and verify everything is working correctly.\n",
+      "utf-8"
+    );
 
     let planContent = "";
     onExitPlanMode((req: PlanApprovalRequest) => {
@@ -241,16 +263,11 @@ describe("exitPlanModeTool — plan file reading", () => {
     expect(planContent).toContain("# PLAN");
   });
 
-  test("falls back to default when no plan file exists", async () => {
+  test("returns error when no plan file exists (guard requires plan file)", async () => {
     process.chdir(tmpDir);
-    let planContent = "";
-    onExitPlanMode((req: PlanApprovalRequest) => {
-      planContent = req.planContent;
-      req.resolve(true);
-    });
-    await exitPlan({});
-    expect(typeof planContent).toBe("string");
-    expect(planContent.length).toBeGreaterThan(0);
+    const result = await exitPlan({});
+    expect(result).toContain("ERRO");
+    expect(result).toContain(".sofik/plan.md");
   });
 });
 
@@ -259,6 +276,7 @@ describe("exitPlanModeTool — plan file reading", () => {
 describe("onExitPlanMode", () => {
   test("registering a callback replaces the previous one", async () => {
     process.chdir(tmpDir);
+    writePlanFile();
     let callCount = 0;
     onExitPlanMode(() => {}); // first callback, never resolves
     onExitPlanMode((req) => {

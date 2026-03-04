@@ -17,6 +17,27 @@ export function resetCopilotTokenCache(): void {
   cachedToken = null;
 }
 
+// 3 attempts (1 initial + 2 retries): max ~1500ms wait — fast enough for 5s test timeouts
+async function withCopilotRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      // Parse status from "Copilot API error (429): ..."
+      const statusMatch = errMsg.match(/\((\d{3})\)/);
+      const status = statusMatch ? parseInt(statusMatch[1]!, 10) : 0;
+      // Don't retry on 4xx except 429
+      if (status >= 400 && status < 500 && status !== 429) throw err;
+      if (attempt === 2) throw err;
+      const delay = Math.min(500 * Math.pow(2, attempt), 4_000) + Math.random() * 200;
+      logger.llm.warn("Copilot retry após erro", { attempt: attempt + 1, status, delayMs: Math.round(delay) });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Max retry attempts exceeded");
+}
+
 async function getCopilotToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     logger.llm.debug("Token Copilot recuperado do cache");
@@ -146,13 +167,14 @@ export class CopilotProvider implements LLMProvider {
     signal,
     systemOverride,
   }: StreamParams): AsyncGenerator<string> {
-    const token = await getCopilotToken();
     const systemPrompt = systemOverride ?? buildSystemPrompt();
     let currentMessages = messages;
     let turnCount = 0;
 
     while (true) {
       turnCount++;
+      // Refresh token each turn (cached; re-fetches only when near expiry)
+      const token = await getCopilotToken();
       const body = {
         model,
         messages: toOpenAIMessages(currentMessages, systemPrompt),
@@ -166,7 +188,7 @@ export class CopilotProvider implements LLMProvider {
       const t0 = Date.now();
       logger.llm.info("Copilot API request", { model, turn: turnCount, messageCount: currentMessages.length, toolCount: tools.length });
 
-      const res = await fetchWithProxy(COPILOT_CHAT_URL, {
+      const res = await withCopilotRetry(() => fetchWithProxy(COPILOT_CHAT_URL, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -177,13 +199,14 @@ export class CopilotProvider implements LLMProvider {
         },
         body: JSON.stringify(body),
         signal,
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => res.statusText);
-        logger.llm.error("Copilot API erro", { model, status: res.status, turn: turnCount });
-        throw new Error(`Copilot API error (${res.status}): ${text}`);
-      }
+      }).then(async (r) => {
+        if (!r.ok) {
+          const text = await r.text().catch(() => r.statusText);
+          logger.llm.error("Copilot API erro", { model, status: r.status, turn: turnCount });
+          throw new Error(`Copilot API error (${r.status}): ${text}`);
+        }
+        return r;
+      }));
 
       logger.llm.info("Copilot API resposta recebida", { model, turn: turnCount, status: res.status, durationMs: Date.now() - t0 });
 
@@ -262,7 +285,38 @@ export class CopilotProvider implements LLMProvider {
         throw err;
       }
 
-      if (toolCallsMap.size === 0 || finishReason !== "tool_calls") break;
+      // Break if there are no tool calls to execute
+      if (toolCallsMap.size === 0) break;
+
+      // "stop" means the model finished without wanting to call tools — respect it
+      if (finishReason === "stop") break;
+
+      // "length" = context limit hit mid-tool-generation — add error results and continue
+      // (null or "tool_calls" → proceed normally)
+      if (finishReason === "length") {
+        logger.llm.warn("Copilot: length (context limit) durante tool_use — adicionando tool_results de erro e continuando", {
+          model, turn: turnCount, toolCount: toolCallsMap.size,
+        });
+        const errorBlocks: LocalContentBlock[] = [];
+        const assistantForError: LocalContentBlock[] = [];
+        for (const tc of Array.from(toolCallsMap.values())) {
+          let input: unknown = {};
+          try { input = JSON.parse(tc.args || "{}"); } catch { /* empty */ }
+          assistantForError.push({ type: "tool_use", id: tc.id, name: tc.name, input });
+          errorBlocks.push({
+            type: "tool_result",
+            tool_use_id: tc.id,
+            content: "Error: Response truncated due to context length limit. Please continue from where you left off.",
+            is_error: true,
+          });
+        }
+        currentMessages = [
+          ...currentMessages,
+          { role: "assistant", content: assistantForError },
+          { role: "user",      content: errorBlocks },
+        ];
+        continue;
+      }
 
       // Build assistant content blocks
       const assistantContent: LocalContentBlock[] = [];
