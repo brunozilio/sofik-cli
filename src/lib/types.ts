@@ -9,6 +9,21 @@ export type LocalContentBlock =
 export interface Message {
   role: MessageRole;
   content: string | LocalContentBlock[];
+  /** UUID v4 for this message */
+  id?: string;
+  /** ID of the preceding message (for threading) */
+  parentId?: string;
+  /** Estimated cost of this message in USD */
+  costUSD?: number;
+  /** Duration of the AI response in milliseconds */
+  durationMs?: number;
+  /** Token usage for this message */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
 }
 
 export interface ToolResult {
@@ -31,7 +46,7 @@ export interface ToolDefinition {
 export type AgentStatus = "idle" | "thinking" | "tool_use" | "responding" | "compacting";
 
 export interface TurnEvent {
-  type: "text" | "tool_use" | "tool_result";
+  type: "text" | "tool_use" | "tool_result" | "thinking";
   text?: string;
   name?: string;
   input?: unknown;

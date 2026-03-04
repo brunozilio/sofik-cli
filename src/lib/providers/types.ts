@@ -11,6 +11,12 @@ export interface StreamParams {
   systemOverride?: string;
   /** Stop after this many agentic turns (LLM→tool→LLM cycles). Unlimited if omitted. */
   maxTurns?: number;
+  /** Budget tokens for extended thinking (enables thinking mode). */
+  thinkingBudget?: number;
+  /** Called with actual input token count after each API response. */
+  onUsageUpdate?: (inputTokens: number) => void;
+  /** Called when a thinking block is received. */
+  onThinking?: (text: string) => void;
 }
 
 export interface LLMProvider {

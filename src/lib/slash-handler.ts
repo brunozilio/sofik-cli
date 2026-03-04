@@ -6,7 +6,8 @@ import { loadSkills, getSkill, invalidateSkillsCache } from "./skills.ts";
 import { getMcpStatus } from "./mcp.ts";
 import { login, logout, loginCopilot } from "./oauth.ts";
 import { type PermissionMode } from "./permissions.ts";
-import { resetSessionUsage } from "./anthropic.ts";
+import { resetSessionUsage, getSessionUsage, estimateCost } from "./anthropic.ts";
+import { validateSettings, loadSettings } from "./settings.ts";
 import { logger } from "./logger.ts";
 import {
   saveCredentials,
@@ -19,6 +20,7 @@ import {
   cancelTask,
   clearCompletedTasks,
 } from "../db/queries/tasks.ts";
+import { MODELS } from "./models.ts";
 import type { Message } from "./types.ts";
 import type { Session } from "./session.ts";
 import type { LoginProvider } from "../components/LoginProviderSelector.tsx";
@@ -44,6 +46,10 @@ export interface SlashHandlerDeps {
   setPendingTaskCreate: (v: boolean) => void;
   changeMode: (mode: PermissionMode) => void;
   resetSessionUsage: () => void;
+  setThinkingBudget?: (budget: number | undefined) => void;
+  setShowConfigPanel?: (v: boolean) => void;
+  currentModel?: string;
+  lastInputTokens?: number;
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
@@ -69,6 +75,10 @@ export function createSlashHandler(deps: SlashHandlerDeps) {
       setPendingTaskCreate,
       changeMode,
       resetSessionUsage,
+      setThinkingBudget,
+      setShowConfigPanel,
+      currentModel,
+      lastInputTokens,
     } = deps;
 
     const parts = cmd.slice(1).trim().split(/\s+/);
@@ -488,6 +498,109 @@ export function createSlashHandler(deps: SlashHandlerDeps) {
           lines.push(`  ${s.healthy ? "✓" : "✗"} ${s.name} — ${s.healthy ? "saudável" : "falhou"}`);
         }
         setSystemMessage(lines.join("\n"));
+        return true;
+      }
+
+      case "help": {
+        const cmds = getSlashCommands();
+        const lines = ["Comandos disponíveis:\n"];
+        for (const cmd of cmds) {
+          lines.push(`  /${cmd.name.padEnd(20)} ${cmd.description}`);
+          if (cmd.subcommands?.length) {
+            for (const sub of cmd.subcommands) {
+              lines.push(`    /${cmd.name} ${sub.name.padEnd(14)} ${sub.description}`);
+            }
+          }
+        }
+        setSystemMessage(lines.join("\n"));
+        return true;
+      }
+
+      case "cost": {
+        const u = getSessionUsage();
+        const model = currentModel ?? "claude-opus-4-6";
+        const cost = estimateCost(model, u);
+        const lines = [
+          "Custo da sessão:\n",
+          `  Input tokens:       ${u.inputTokens.toLocaleString()}`,
+          `  Output tokens:      ${u.outputTokens.toLocaleString()}`,
+          `  Cache read tokens:  ${u.cacheReadTokens.toLocaleString()}`,
+          `  Cache write tokens: ${u.cacheWriteTokens.toLocaleString()}`,
+          `  Total estimado:     $${cost.toFixed(6)}`,
+        ];
+        setSystemMessage(lines.join("\n"));
+        return true;
+      }
+
+      case "usage": {
+        const u = getSessionUsage();
+        const model = currentModel ?? "claude-opus-4-6";
+        const modelInfo = MODELS[model];
+        const ctx = modelInfo?.contextWindow ?? 200_000;
+        const total = u.inputTokens + u.cacheReadTokens;
+        const pct = ((total / ctx) * 100).toFixed(1);
+        const lines = [
+          "Uso de contexto:\n",
+          `  Tokens usados:    ${total.toLocaleString()} / ${ctx.toLocaleString()}`,
+          `  Utilização:       ${pct}%`,
+          `  Input:            ${u.inputTokens.toLocaleString()}`,
+          `  Cache read:       ${u.cacheReadTokens.toLocaleString()}`,
+          `  Output:           ${u.outputTokens.toLocaleString()}`,
+          lastInputTokens ? `  Último real:      ${lastInputTokens.toLocaleString()} tokens` : "",
+        ].filter(Boolean);
+        setSystemMessage(lines.join("\n"));
+        return true;
+      }
+
+      case "doctor": {
+        const checks: string[] = ["Verificação de saúde do sistema:\n"];
+
+        // API key
+        const hasKey = !!process.env.ANTHROPIC_API_KEY;
+        checks.push(`  ${hasKey ? "✓" : "✗"} ANTHROPIC_API_KEY: ${hasKey ? "presente" : "ausente"}`);
+
+        // Settings validation
+        const settings = loadSettings();
+        const settingsErrors = validateSettings(settings);
+        checks.push(`  ${settingsErrors.length === 0 ? "✓" : "✗"} Settings: ${settingsErrors.length === 0 ? "válidas" : settingsErrors.join("; ")}`);
+
+        // MCP
+        const mcpStatuses = getMcpStatus();
+        if (mcpStatuses.length === 0) {
+          checks.push("  ✓ MCP: nenhum servidor configurado");
+        } else {
+          const healthy = mcpStatuses.filter((s) => s.healthy).length;
+          checks.push(`  ${healthy === mcpStatuses.length ? "✓" : "⚠"} MCP: ${healthy}/${mcpStatuses.length} saudável(is)`);
+        }
+
+        // Disk write test
+        try {
+          const testPath = `/tmp/sofik-doctor-${Date.now()}`;
+          fs.writeFileSync(testPath, "ok");
+          fs.unlinkSync(testPath);
+          checks.push("  ✓ Disk write: OK");
+        } catch (err) {
+          checks.push(`  ✗ Disk write: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        setSystemMessage(checks.join("\n"));
+        return true;
+      }
+
+      case "config": {
+        setShowConfigPanel?.(true);
+        return true;
+      }
+
+      case "think": {
+        setThinkingBudget?.(5000);
+        setSystemMessage("Modo thinking ativado para próxima mensagem (budget: 5000 tokens).");
+        return true;
+      }
+
+      case "ultrathink": {
+        setThinkingBudget?.(16000);
+        setSystemMessage("Modo ultrathink ativado para próxima mensagem (budget: 16000 tokens).");
         return true;
       }
 

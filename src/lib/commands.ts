@@ -26,8 +26,15 @@ const integrationArgs = getAllProviders().map((p) => ({
 }));
 
 export const BUILTIN_COMMANDS: SlashCommand[] = [
+  { name: "help",       description: "Listar todos os comandos disponíveis" },
   { name: "clear",      description: "Limpar o histórico da conversa (aliases: reset, new)" },
   { name: "commit",     description: "Criar um commit git (assistido por IA)" },
+  { name: "cost",       description: "Exibir custo estimado da sessão (input/output/cache)" },
+  { name: "usage",      description: "Exibir tokens usados vs. janela de contexto do modelo" },
+  { name: "config",     description: "Abrir painel de configurações interativo" },
+  { name: "doctor",     description: "Verificar saúde do sistema (API, MCP, settings, disco)" },
+  { name: "think",      description: "Ativar modo thinking para próxima mensagem (budget: 5000)" },
+  { name: "ultrathink", description: "Ativar ultrathink para próxima mensagem (budget: 16000)" },
   { name: "exit",       description: "Sair do REPL (alias: quit)" },
   { name: "login",      description: "Entrar com sua conta" },
   { name: "logout",     description: "Sair da sua conta" },

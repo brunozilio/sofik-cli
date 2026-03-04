@@ -5,6 +5,14 @@ import { App } from "./App.tsx";
 import { loadSettings, validateSettings } from "./lib/settings.ts";
 import { logger } from "./lib/logger.ts";
 
+// ─── Nested session guard ────────────────────────────────────────────────────
+
+if (process.env.SOFIK_ENTRY_POINT) {
+  console.error("Error: Sofik already running in this shell. Nested sessions are not supported.");
+  process.exit(1);
+}
+process.env.SOFIK_ENTRY_POINT = "1";
+
 // ─── Mode flags ─────────────────────────────────────────────────────────────
 
 // Load settings to get defaultMode (user/project settings.json)

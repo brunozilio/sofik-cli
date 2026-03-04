@@ -20,31 +20,35 @@ const COMMANDS_DIR = join(TEST_DIR, ".sofik", "commands");
 // Do NOT mock ../integrations/connectors/index.ts — it has its own test file.
 // It's pure data (connector definitions) and safe to use the real module.
 
-mock.module("./models.ts", () => ({
-  MODELS: {
-    "claude-opus-4-6":   { contextWindow: 200000, maxOutput: 8096,  label: "Opus 4.6 (most capable)" },
-    "claude-opus-4-5":   { contextWindow: 200000, maxOutput: 8096,  label: "Opus 4.5" },
+mock.module("./models.ts", () => {
+  const MODELS: Record<string, { contextWindow: number; maxOutput: number; label: string }> = {
+    "claude-opus-4-6":   { contextWindow: 200000, maxOutput: 4096,  label: "Opus 4.6 (most capable)" },
+    "claude-opus-4-5":   { contextWindow: 200000, maxOutput: 4096,  label: "Opus 4.5" },
     "claude-opus-4-1":   { contextWindow: 100000, maxOutput: 4096,  label: "Opus 4.1" },
-    "claude-sonnet-4-6": { contextWindow: 200000, maxOutput: 8096,  label: "Sonnet 4.6 (fast + capable)" },
+    "claude-sonnet-4-6": { contextWindow: 200000, maxOutput: 4096,  label: "Sonnet 4.6 (fast + capable)" },
     "claude-sonnet-4-5": { contextWindow: 200000, maxOutput: 4096,  label: "Sonnet 4.5" },
     "claude-sonnet-4":   { contextWindow: 200000, maxOutput: 4096,  label: "Sonnet 4" },
     "claude-3-7-sonnet": { contextWindow: 32000,  maxOutput: 64000, label: "Sonnet 3.7" },
     "claude-3-5-sonnet": { contextWindow: 200000, maxOutput: 4096,  label: "Sonnet 3.5" },
     "claude-haiku-4-5":  { contextWindow: 100000, maxOutput: 4096,  label: "Haiku 4.5 (fast)" },
     "claude-3-5-haiku":  { contextWindow: 200000, maxOutput: 4096,  label: "Haiku 3.5" },
-  },
-  COPILOT_MODELS: {
+  };
+  const COPILOT_MODELS: Record<string, { contextWindow: number; maxOutput: number; label: string }> = {
     "gpt-4o":            { contextWindow: 128000, maxOutput: 16384,  label: "GPT-4o" },
     "gpt-4o-mini":       { contextWindow: 128000, maxOutput: 16384,  label: "GPT-4o mini (fast)" },
     "o1":                { contextWindow: 200000, maxOutput: 100000, label: "o1 (reasoning)" },
     "o3-mini":           { contextWindow: 200000, maxOutput: 100000, label: "o3-mini (fast reasoning)" },
-    "claude-3.5-sonnet": { contextWindow: 200000, maxOutput: 8096,   label: "Claude Sonnet 3.5 (via Copilot)" },
-    "claude-3.5-haiku":  { contextWindow: 200000, maxOutput: 8096,   label: "Claude Haiku 3.5 (via Copilot)" },
-  },
-  DEFAULT_MODEL: "claude-opus-4-6",
-  getModel: (name: string) => ({ contextWindow: 200000, maxOutput: 8096, label: name }),
-  listModels: () => "",
-}));
+    "claude-3.5-sonnet": { contextWindow: 200000, maxOutput: 4096,   label: "Claude Sonnet 3.5 (via Copilot)" },
+    "claude-3.5-haiku":  { contextWindow: 200000, maxOutput: 4096,   label: "Claude Haiku 3.5 (via Copilot)" },
+  };
+  return {
+    MODELS,
+    COPILOT_MODELS,
+    DEFAULT_MODEL: "claude-opus-4-6",
+    getModel: (name: string) => MODELS[name] ?? { contextWindow: 200000, maxOutput: 4096, label: name },
+    listModels: () => "",
+  };
+});
 
 import { BUILTIN_COMMANDS, SLASH_COMMANDS, getSlashCommands } from "./commands.ts";
 import type { SlashCommand, SlashSubCommand, CommandArg } from "./commands.ts";

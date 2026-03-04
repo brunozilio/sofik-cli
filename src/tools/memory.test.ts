@@ -186,7 +186,8 @@ describe("appendMemoryTool — execute", () => {
     await appendMemory({ content: "appended" });
     const memPath = getMemoryPath();
     const content = fs.readFileSync(memPath, "utf-8");
-    expect(content).toBe("with trailing newline\nappended");
+    // When existing ends with \n, separator is "\n", giving "\n\n" total between content and appended
+    expect(content).toBe("with trailing newline\n\nappended");
   });
 
   test("no separator when file was empty", async () => {

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "../lib/types.ts";
 import { logger } from "../lib/logger.ts";
+import { validateFilePath } from "./_pathSafety.ts";
 
 export const writeTool: ToolDefinition = {
   name: "Write",
@@ -24,6 +25,10 @@ export const writeTool: ToolDefinition = {
   async execute(input) {
     const filePath = path.resolve(input["file_path"] as string);
     const content = input["content"] as string;
+
+    try { validateFilePath(filePath); } catch (err) {
+      return `Erro: ${err instanceof Error ? err.message : String(err)}`;
+    }
 
     logger.tool.info("Write: escrevendo arquivo", { filePath, contentLength: content.length });
 

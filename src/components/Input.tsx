@@ -30,6 +30,20 @@ function saveHistory(history: string[]): void {
   } catch { /* ignore */ }
 }
 
+/** Find the start index of the word before the cursor. */
+function wordStartBefore(str: string, pos: number): number {
+  let i = pos - 1;
+  while (i > 0 && str[i - 1] !== " " && str[i - 1] !== "\n") i--;
+  return i;
+}
+
+/** Find the end index of the word after the cursor (exclusive). */
+function wordEndAfter(str: string, pos: number): number {
+  let i = pos;
+  while (i < str.length && str[i] !== " " && str[i] !== "\n") i++;
+  return i;
+}
+
 interface InputProps {
   onSubmit: (value: string) => void;
   disabled?: boolean;
@@ -46,6 +60,8 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
   const [history, setHistory] = useState<string[]>(() => loadHistory());
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [savedInput, setSavedInput] = useState("");
+  // Kill ring (single item for Ctrl+K/W yank)
+  const killRingRef = useRef<string>("");
 
   const suggestions = useMemo(() => {
     if (!value.startsWith("/")) return [];
@@ -244,8 +260,69 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
       if (key.ctrl && input === "e") { setCursorPos(value.length); return; }
       if (key.ctrl && input === "u") { setValue(""); setCursorPos(0); return; }
 
+      // Ctrl+B / Ctrl+F: move one char (like left/right arrows)
+      if (key.ctrl && input === "b") { setCursorPos((p) => Math.max(0, p - 1)); return; }
+      if (key.ctrl && input === "f") { setCursorPos((p) => Math.min(value.length, p + 1)); return; }
+
+      // Ctrl+D: delete char forward
+      if (key.ctrl && input === "d") {
+        if (cursorPos < value.length) {
+          setValue((v) => v.slice(0, cursorPos) + v.slice(cursorPos + 1));
+        }
+        return;
+      }
+
+      // Ctrl+K: kill to end of line (save to kill ring)
+      if (key.ctrl && input === "k") {
+        killRingRef.current = value.slice(cursorPos);
+        setValue((v) => v.slice(0, cursorPos));
+        return;
+      }
+
+      // Ctrl+W: delete word before cursor (save to kill ring)
+      if (key.ctrl && input === "w") {
+        const wordStart = wordStartBefore(value, cursorPos);
+        killRingRef.current = value.slice(wordStart, cursorPos);
+        setValue((v) => v.slice(0, wordStart) + v.slice(cursorPos));
+        setCursorPos(wordStart);
+        return;
+      }
+
+      // Ctrl+Y: yank (paste kill ring)
+      if (key.ctrl && input === "y") {
+        const yanked = killRingRef.current;
+        if (yanked) {
+          setValue((v) => v.slice(0, cursorPos) + yanked + v.slice(cursorPos));
+          setCursorPos((p) => p + yanked.length);
+        }
+        return;
+      }
+
+      // Alt+B: move to start of previous word
+      if (key.meta && input === "b") {
+        const ws = wordStartBefore(value, cursorPos);
+        setCursorPos(ws);
+        return;
+      }
+
+      // Alt+F: move to end of next word
+      if (key.meta && input === "f") {
+        const we = wordEndAfter(value, cursorPos);
+        setCursorPos(we);
+        return;
+      }
+
       if (!key.ctrl && !key.meta && input) {
         if (historyIdx !== -1) setHistoryIdx(-1);
+
+        // Paste detection: multiple chars arriving in one event = paste
+        if (input.length > 3) {
+          // Insert all at once without char-by-char processing
+          setValue((v) => v.slice(0, cursorPos) + input + v.slice(cursorPos));
+          setCursorPos((p) => p + input.length);
+          return;
+        }
+
         setValue((v) => v.slice(0, cursorPos) + input + v.slice(cursorPos));
         setCursorPos((p) => p + input.length);
       }
@@ -259,12 +336,12 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
   let cursorLine = 0;
   let cursorCol = 0;
   for (let i = 0; i < allLines.length; i++) {
-    if (remaining <= allLines[i].length) {
+    if (remaining <= allLines[i]!.length) {
       cursorLine = i;
       cursorCol = remaining;
       break;
     }
-    remaining -= allLines[i].length + 1; // +1 for the \n
+    remaining -= allLines[i]!.length + 1; // +1 for the \n
   }
 
   return (

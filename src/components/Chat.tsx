@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Box, Text } from "ink";
 import type { Message, LocalContentBlock, TurnEvent } from "../lib/types.ts";
 import { Markdown } from "./Markdown.tsx";
@@ -65,6 +65,31 @@ function toolColor(name: string): string {
   return TOOL_COLORS[name] ?? "green";
 }
 
+// ── Thinking block ──────────────────────────────────────────────────────────
+
+function ThinkingBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text
+        dimColor
+        color="cyan"
+        onPress={() => setExpanded((v) => !v)}
+      >
+        ◈ thinking  [{lines.length} linha{lines.length !== 1 ? "s" : ""}{expanded ? ", clique para recolher" : ", clique para expandir"}]
+      </Text>
+      {expanded && (
+        <Box flexDirection="column" marginLeft={2}>
+          {lines.map((line, i) => (
+            <Text key={i} color="gray" dimColor>{line}</Text>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 // ── Sub-components ─────────────────────────────────────────────────────────
 
 function UserMessage({ content }: { content: string }) {
@@ -80,6 +105,22 @@ function UserMessage({ content }: { content: string }) {
           <Text dimColor>{line}</Text>
         </Box>
       ))}
+    </Box>
+  );
+}
+
+function AssistantMessage({ content, costUSD, durationMs }: { content: string; costUSD?: number; durationMs?: number }) {
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Markdown content={content} />
+      {(costUSD != null && costUSD > 0) && (
+        <Box marginTop={0}>
+          <Text dimColor>
+            {`  ~$${costUSD.toFixed(4)}`}
+            {durationMs ? ` · ${(durationMs / 1000).toFixed(1)}s` : ""}
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -180,9 +221,12 @@ export function Chat({ messages, turnEvents, status }: ChatProps) {
                   .join("\n\n");
           if (!text.trim()) return null;
           return (
-            <Box key={`msg-${i}`} flexDirection="column" marginBottom={1}>
-              <Markdown content={text} />
-            </Box>
+            <AssistantMessage
+              key={`msg-${i}`}
+              content={text}
+              costUSD={msg.costUSD}
+              durationMs={msg.durationMs}
+            />
           );
         }
         return null;
@@ -196,6 +240,14 @@ export function Chat({ messages, turnEvents, status }: ChatProps) {
             let i = 0;
             while (i < turnEvents.length) {
               const event = turnEvents[i]!;
+
+              if (event.type === "thinking" && event.text) {
+                nodes.push(
+                  <ThinkingBlock key={`te-${i}`} text={event.text} />
+                );
+                i++;
+                continue;
+              }
 
               if (event.type === "text" && event.text) {
                 nodes.push(

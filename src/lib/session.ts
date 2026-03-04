@@ -26,13 +26,89 @@ function sessionPath(id: string): string {
   return path.join(sessionsDir(), `${id}.json`);
 }
 
+function sessionJsonlPath(id: string): string {
+  return path.join(sessionsDir(), `${id}.jsonl`);
+}
+
 export function generateSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// ── JSONL helpers ─────────────────────────────────────────────────────────────
+
+interface SessionHeader {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  model: string;
+  cwd: string;
+  title?: string;
+}
+
+function writeJsonl(session: Session): void {
+  const jsonlPath = sessionJsonlPath(session.id);
+  const header: SessionHeader = {
+    id: session.id,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    model: session.model,
+    cwd: session.cwd,
+    title: session.title,
+  };
+  const lines = [
+    JSON.stringify({ __header: true, ...header }),
+    ...session.messages.map((m) => JSON.stringify(m)),
+  ];
+  fs.writeFileSync(jsonlPath, lines.join("\n") + "\n", "utf-8");
+}
+
+function readJsonl(id: string): Session | null {
+  const jsonlPath = sessionJsonlPath(id);
+  try {
+    const raw = fs.readFileSync(jsonlPath, "utf-8");
+    const lines = raw.split("\n").filter((l) => l.trim());
+    if (lines.length === 0) return null;
+    const header = JSON.parse(lines[0]!) as SessionHeader & { __header?: boolean };
+    const messages = lines.slice(1).map((l) => JSON.parse(l) as Message);
+    return {
+      id: header.id,
+      createdAt: header.createdAt,
+      updatedAt: header.updatedAt,
+      model: header.model,
+      cwd: header.cwd,
+      title: header.title,
+      messages,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Append a single message to the JSONL file (O(1) write). */
+export function appendMessageToSession(id: string, message: Message): void {
+  const jsonlPath = sessionJsonlPath(id);
+  try {
+    fs.appendFileSync(jsonlPath, JSON.stringify(message) + "\n", "utf-8");
+  } catch { /* ignore — main saveSession will catch up */ }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
 export function saveSession(session: Session): void {
   session.updatedAt = new Date().toISOString();
-  fs.writeFileSync(sessionPath(session.id), JSON.stringify(session, null, 2), "utf-8");
+
+  // Primary: JSONL
+  try {
+    writeJsonl(session);
+  } catch (err) {
+    logger.session.warn("Falha ao salvar sessão em JSONL", { sessionId: session.id, error: String(err) });
+  }
+
+  // Compatibility: also keep JSON (for tools that read .json)
+  try {
+    fs.writeFileSync(sessionPath(session.id), JSON.stringify(session, null, 2), "utf-8");
+  } catch { /* ignore */ }
+
   logger.session.info("Sessão salva", {
     sessionId: session.id,
     model: session.model,
@@ -43,10 +119,19 @@ export function saveSession(session: Session): void {
 }
 
 export function loadSession(id: string): Session | null {
+  // Try JSONL first, fallback to JSON
+  const fromJsonl = readJsonl(id);
+  if (fromJsonl) {
+    logger.session.info("Sessão carregada (JSONL)", { sessionId: id, messageCount: fromJsonl.messages.length });
+    return fromJsonl;
+  }
+
   try {
     const raw = fs.readFileSync(sessionPath(id), "utf-8");
     const session = JSON.parse(raw) as Session;
-    logger.session.info("Sessão carregada", { sessionId: id, messageCount: session.messages.length, model: session.model });
+    logger.session.info("Sessão carregada (JSON)", { sessionId: id, messageCount: session.messages.length, model: session.model });
+    // Migrate to JSONL
+    try { writeJsonl(session); } catch { /* ignore migration error */ }
     return session;
   } catch (err) {
     logger.session.warn("Falha ao carregar sessão", { sessionId: id, error: err instanceof Error ? err.message : String(err) });
@@ -64,27 +149,31 @@ export function listSessions(): Array<{
 }> {
   try {
     const dir = sessionsDir();
-    return fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => {
-        try {
-          const raw = fs.readFileSync(path.join(dir, f), "utf-8");
-          const s = JSON.parse(raw) as Session;
-          return {
-            id: s.id,
-            updatedAt: s.updatedAt,
-            model: s.model,
-            cwd: s.cwd,
-            messageCount: s.messages.length,
-            title: s.title,
-          };
-        } catch {
-          return null;
-        }
-      })
-      .filter((s): s is NonNullable<typeof s> => s !== null)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const seen = new Set<string>();
+    const results: Array<{ id: string; updatedAt: string; model: string; cwd: string; messageCount: number; title?: string }> = [];
+
+    for (const f of fs.readdirSync(dir)) {
+      const isJsonl = f.endsWith(".jsonl");
+      const isJson = f.endsWith(".json");
+      if (!isJsonl && !isJson) continue;
+
+      const id = f.replace(/\.(jsonl|json)$/, "");
+      if (seen.has(id)) continue;
+
+      const session = loadSession(id);
+      if (!session) continue;
+      seen.add(id);
+      results.push({
+        id: session.id,
+        updatedAt: session.updatedAt,
+        model: session.model,
+        cwd: session.cwd,
+        messageCount: session.messages.length,
+        title: session.title,
+      });
+    }
+
+    return results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch {
     return [];
   }
@@ -100,40 +189,16 @@ export function searchSessions(query: string): Array<{
   title?: string;
 }> {
   const q = query.toLowerCase();
-  try {
-    const dir = sessionsDir();
-    return fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => {
-        try {
-          const raw = fs.readFileSync(path.join(dir, f), "utf-8");
-          const s = JSON.parse(raw) as Session;
-          // Search in all message content
-          const matches = s.messages.some((m) => {
-            const content = typeof m.content === "string"
-              ? m.content
-              : JSON.stringify(m.content);
-            return content.toLowerCase().includes(q);
-          });
-          if (!matches) return null;
-          return {
-            id: s.id,
-            updatedAt: s.updatedAt,
-            model: s.model,
-            cwd: s.cwd,
-            messageCount: s.messages.length,
-            title: s.title,
-          };
-        } catch {
-          return null;
-        }
-      })
-      .filter((s): s is NonNullable<typeof s> => s !== null)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  } catch {
-    return [];
-  }
+  return listSessions().filter((s) => {
+    const session = loadSession(s.id);
+    if (!session) return false;
+    return session.messages.some((m) => {
+      const content = typeof m.content === "string"
+        ? m.content
+        : JSON.stringify(m.content);
+      return content.toLowerCase().includes(q);
+    });
+  });
 }
 
 export function createSession(model: string): Session {

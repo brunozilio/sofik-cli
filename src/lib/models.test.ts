@@ -16,7 +16,7 @@ describe("MODELS", () => {
   test("claude-opus-4-6 has correct values", () => {
     const m = MODELS["claude-opus-4-6"]!;
     expect(m.contextWindow).toBe(200_000);
-    expect(m.maxOutput).toBe(8096);
+    expect(m.maxOutput).toBe(4096);
     expect(m.label).toBe("Opus 4.6 (most capable)");
   });
 
@@ -142,7 +142,7 @@ describe("getModel", () => {
   test("returns known model by exact key", () => {
     const m = getModel("claude-opus-4-6");
     expect(m.contextWindow).toBe(200_000);
-    expect(m.maxOutput).toBe(8096);
+    expect(m.maxOutput).toBe(4096);
     expect(m.label).toBe("Opus 4.6 (most capable)");
   });
 
@@ -162,7 +162,7 @@ describe("getModel", () => {
     const m = getModel(name);
     expect(m.label).toBe(name);
     expect(m.contextWindow).toBe(200_000);
-    expect(m.maxOutput).toBe(8096);
+    expect(m.maxOutput).toBe(4096);
   });
 
   test("fallback has correct default contextWindow", () => {
@@ -172,7 +172,7 @@ describe("getModel", () => {
 
   test("fallback has correct default maxOutput", () => {
     const m = getModel("not-a-real-model");
-    expect(m.maxOutput).toBe(8096);
+    expect(m.maxOutput).toBe(4096);
   });
 
   test("empty string returns fallback with empty label", () => {

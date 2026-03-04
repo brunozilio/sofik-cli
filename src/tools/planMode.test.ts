@@ -29,8 +29,8 @@ afterEach(() => {
   // Clean up any plan files
   try { fs.rmSync(path.join(tmpDir, ".sofik"), { recursive: true }); } catch {}
   try { fs.rmSync(path.join(tmpDir, "PLAN.md")); } catch {}
-  // Reset callback
-  onExitPlanMode(() => {}); // reset to a no-op so future tests don't get old callbacks
+  // Reset callback to auto-approve so no subsequent tests hang
+  onExitPlanMode((req) => req.resolve(true));
 });
 
 async function enterPlan(): Promise<string> {

@@ -50,6 +50,8 @@ export interface Settings {
   brevity?: "strict" | "focused" | "polished";
   /** HTTP/HTTPS proxy configuration */
   proxy?: ProxySettings;
+  /** Custom status bar command (output replaces default status bar text) */
+  statusLine?: { command: string };
 }
 
 function readJson(filePath: string): Settings {
@@ -80,6 +82,7 @@ function mergeSettings(...layers: Settings[]): Settings {
     if (s.language !== undefined) out.language = s.language;
     if (s.brevity !== undefined) out.brevity = s.brevity;
     if (s.proxy !== undefined) out.proxy = s.proxy;
+    if (s.statusLine !== undefined) out.statusLine = s.statusLine;
   }
   return out;
 }
@@ -146,7 +149,7 @@ export function saveProjectSettings(updates: Partial<Settings>): void {
 
 const KNOWN_SETTINGS_KEYS = new Set([
   "permissions", "defaultMode", "additionalDirectories", "disableSandbox",
-  "memoryExcludes", "model", "hooks", "language", "brevity", "proxy",
+  "memoryExcludes", "model", "hooks", "language", "brevity", "proxy", "statusLine",
 ]);
 
 const VALID_DEFAULT_MODES = new Set(["ask", "auto", "bypassPermissions", "plan"]);

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "../lib/types.ts";
 import { logger } from "../lib/logger.ts";
+import { validateFilePath } from "./_pathSafety.ts";
 
 export const editTool: ToolDefinition = {
   name: "Edit",
@@ -35,6 +36,10 @@ export const editTool: ToolDefinition = {
     const oldString = input["old_string"] as string;
     const newString = input["new_string"] as string;
     const replaceAll = (input["replace_all"] as boolean | undefined) ?? false;
+
+    try { validateFilePath(filePath); } catch (err) {
+      return `Erro: ${err instanceof Error ? err.message : String(err)}`;
+    }
 
     logger.tool.info("Edit: editando arquivo", { filePath, replaceAll, oldLength: oldString.length, newLength: newString.length });
 

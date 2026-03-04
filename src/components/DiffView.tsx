@@ -72,6 +72,49 @@ function computeDiff(oldLines: string[], newLines: string[], context = 3): DiffL
   return result;
 }
 
+// ── Word-level diff ────────────────────────────────────────────────────────
+
+type WordToken = { type: "same" | "added" | "removed"; text: string };
+
+export function computeWordDiff(oldLine: string, newLine: string): WordToken[] {
+  // Tokenize by whitespace/punctuation boundaries
+  const tokenize = (s: string): string[] => s.split(/(\s+|[.,;:!?()[\]{}"'])/);
+  const oldTokens = tokenize(oldLine);
+  const newTokens = tokenize(newLine);
+
+  // Simple LCS for tokens
+  const m = oldTokens.length;
+  const n = newTokens.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let ii = m - 1; ii >= 0; ii--) {
+    for (let jj = n - 1; jj >= 0; jj--) {
+      if (oldTokens[ii] === newTokens[jj]) {
+        dp[ii]![jj] = 1 + (dp[ii + 1]?.[jj + 1] ?? 0);
+      } else {
+        dp[ii]![jj] = Math.max(dp[ii + 1]?.[jj] ?? 0, dp[ii]?.[jj + 1] ?? 0);
+      }
+    }
+  }
+
+  const result: WordToken[] = [];
+  let ii = 0, jj = 0;
+  while (ii < m || jj < n) {
+    if (ii < m && jj < n && oldTokens[ii] === newTokens[jj]) {
+      result.push({ type: "same", text: oldTokens[ii]! });
+      ii++; jj++;
+    } else if (jj < n && (ii >= m || (dp[ii]?.[jj + 1] ?? 0) >= (dp[ii + 1]?.[jj] ?? 0))) {
+      result.push({ type: "added", text: newTokens[jj]! });
+      jj++;
+    } else {
+      result.push({ type: "removed", text: oldTokens[ii]! });
+      ii++;
+    }
+  }
+
+  return result;
+}
+
 interface DiffViewProps {
   oldContent: string;
   newContent: string;
@@ -89,22 +132,74 @@ export function DiffView({ oldContent, newContent, maxLines = 20 }: DiffViewProp
   const visible = diff.slice(0, maxLines);
   const hidden = diff.length - visible.length;
 
+  // Pair up removed/added lines for word-level diff
+  const pairedChanges: Array<{ removed?: string; added?: string }> = [];
+  for (let idx = 0; idx < diff.length; idx++) {
+    const line = diff[idx]!;
+    if (line.type === "removed") {
+      const next = diff[idx + 1];
+      if (next?.type === "added") {
+        pairedChanges.push({ removed: line.content, added: next.content });
+      }
+    }
+  }
+  const pairedRemovedSet = new Set(pairedChanges.map((p) => p.removed));
+  const pairedAddedSet = new Set<string>();
+  for (const p of pairedChanges) {
+    if (p.removed && p.added) pairedAddedSet.add(p.added);
+  }
+
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text dimColor>
         Diff: <Text color="green">+{added}</Text> <Text color="red">-{removed}</Text>
       </Text>
       <Box flexDirection="column" marginLeft={1}>
-        {visible.map((line, i) => (
-          <Text
-            key={i}
-            color={line.type === "added" ? "green" : line.type === "removed" ? "red" : undefined}
-            dimColor={line.type === "context"}
-          >
-            {line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}
-            {line.content.slice(0, 100)}
-          </Text>
-        ))}
+        {visible.map((line, idx) => {
+          // Word-level diff for paired removed/added lines
+          if (line.type === "removed" && pairedRemovedSet.has(line.content)) {
+            const pair = pairedChanges.find((p) => p.removed === line.content);
+            if (pair?.added) {
+              const tokens = computeWordDiff(line.content, pair.added);
+              return (
+                <Box key={idx} flexDirection="row">
+                  <Text color="red">-</Text>
+                  {tokens.filter((t) => t.type !== "added").map((t, ti) => (
+                    <Text key={ti} color="red" bold={t.type === "removed"} dimColor={t.type === "same"}>
+                      {t.text}
+                    </Text>
+                  ))}
+                </Box>
+              );
+            }
+          }
+          if (line.type === "added" && pairedAddedSet.has(line.content)) {
+            const pair = pairedChanges.find((p) => p.added === line.content);
+            if (pair?.removed) {
+              const tokens = computeWordDiff(pair.removed, line.content);
+              return (
+                <Box key={idx} flexDirection="row">
+                  <Text color="green">+</Text>
+                  {tokens.filter((t) => t.type !== "removed").map((t, ti) => (
+                    <Text key={ti} color="green" bold={t.type === "added"} dimColor={t.type === "same"}>
+                      {t.text}
+                    </Text>
+                  ))}
+                </Box>
+              );
+            }
+          }
+          return (
+            <Text
+              key={idx}
+              color={line.type === "added" ? "green" : line.type === "removed" ? "red" : undefined}
+              dimColor={line.type === "context"}
+            >
+              {line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}
+              {line.content.slice(0, 100)}
+            </Text>
+          );
+        })}
         {hidden > 0 && <Text dimColor>  ... +{hidden} more lines</Text>}
       </Box>
     </Box>

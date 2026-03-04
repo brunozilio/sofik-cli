@@ -8,11 +8,13 @@ import { PermissionPrompt } from "./components/PermissionPrompt.tsx";
 import { ModelSelector } from "./components/ModelSelector.tsx";
 import { SessionSelector } from "./components/SessionSelector.tsx";
 import { IntegrationSelector } from "./components/IntegrationSelector.tsx";
+import { ConfigPanel } from "./components/ConfigPanel.tsx";
 import {
   createClient,
   streamResponse,
   shouldCompact,
   compact,
+  microcompact,
   getCurrentModel,
   setModel,
   getSessionUsage,
@@ -40,6 +42,7 @@ import { QuestionPrompt } from "./components/QuestionPrompt.tsx";
 import { detectPromptInjection } from "./lib/injection.ts";
 import { saveProjectSettings } from "./lib/settings.ts";
 import { loadSkills } from "./lib/skills.ts";
+import { sendNotification } from "./lib/notifications.ts";
 import type { Message, AgentStatus, TurnEvent } from "./lib/types.ts";
 import type { Session } from "./lib/session.ts";
 import {
@@ -87,6 +90,32 @@ const client = new Proxy({} as ReturnType<typeof createClient>, {
 }) as ReturnType<typeof createClient>;
 
 const tools = getAllTools();
+
+// ─── @mention expansion ───────────────────────────────────────────────────────
+
+async function expandMentions(text: string): Promise<string> {
+  const mentionRegex = /@([\w./\\-]+)/g;
+  const matches = [...text.matchAll(mentionRegex)];
+  if (matches.length === 0) return text;
+
+  let result = text;
+  for (const match of matches) {
+    const filePath = match[1]!;
+    try {
+      const content = await Bun.file(filePath).text();
+      result = result.replace(match[0], `\`${filePath}\`:\n\`\`\`\n${content}\n\`\`\``);
+    } catch { /* keep original @mention */ }
+  }
+  return result;
+}
+
+// ─── Thinking detection ───────────────────────────────────────────────────────
+
+function detectThinkingBudget(text: string): number | undefined {
+  if (/\bultrathink\b/gi.test(text)) return 16000;
+  if (/\bthink(?:ing)?\b/gi.test(text)) return 5000;
+  return undefined;
+}
 
 // ─── App ───────────────────────────────────────────────────────────────────
 
@@ -157,6 +186,10 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
   const [pendingQuestion, setPendingQuestion] = useState<AskUserRequest | null>(null);
   const [pendingIntegrationConnect, setPendingIntegrationConnect] = useState<string | null>(null);
   const [pendingTaskCreate, setPendingTaskCreate] = useState(false);
+  const [thinkingBudget, setThinkingBudget] = useState<number | undefined>(undefined);
+  const [showConfigPanel, setShowConfigPanel] = useState(false);
+  // Track last input tokens for smart compaction
+  const lastInputTokensRef = useRef<number | undefined>(undefined);
   // Always-current ref so the queue runner reads fresh messages after each AI turn
   const messagesRef = useRef<Message[]>(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -201,7 +234,9 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
     const unsub = onBackgroundTaskComplete((task) => {
       const icon = task.status === "completed" ? "✓" : "✗";
       const statusText = task.status === "completed" ? "completed" : task.status === "stopped" ? "stopped" : "failed";
-      setSystemMessage(`${icon} Background task '${task.description}' ${statusText}.`);
+      const msg = `${icon} Background task '${task.description}' ${statusText}.`;
+      setSystemMessage(msg);
+      sendNotification("Sofik AI", msg);
     });
     return unsub;
   }, []);
@@ -241,6 +276,12 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
           currentText = "";
         }
       };
+
+      // Capture thinking budget for this run, then reset
+      const budget = thinkingBudget;
+      if (budget) setThinkingBudget(undefined);
+
+      const turnStart = Date.now();
 
       try {
         const stream = streamResponse(
@@ -296,7 +337,17 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
             });
             setTurnEvents([...evts]);
           },
-          abortController.signal
+          abortController.signal,
+          {
+            thinkingBudget: budget,
+            onUsageUpdate: (inputTokens) => {
+              lastInputTokensRef.current = inputTokens;
+            },
+            onThinking: (thinkingText) => {
+              evts.push({ type: "thinking", text: thinkingText });
+              setTurnEvents([...evts]);
+            },
+          }
         );
 
         setStatus("responding");
@@ -311,17 +362,34 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
           }
         }
 
+        // Garantir render final com todo o texto acumulado
+        if (currentText) {
+          setTurnEvents([...evts, { type: "text", text: currentText }]);
+        }
+
         flushText();
+
+        const durationMs = Date.now() - turnStart;
+        const usage = getSessionUsage();
+        const costUSD = estimateCost(getCurrentModel(), usage);
+
+        const assistantMsg: Message = {
+          role: "assistant",
+          content: fullText,
+          id: crypto.randomUUID(),
+          durationMs,
+          costUSD,
+        };
 
         resultMessages = [
           ...msgs,
-          { role: "assistant", content: fullText },
+          assistantMsg,
         ];
         setMessages(resultMessages);
         session.current.messages = resultMessages;
         saveSession(session.current);
         setTurnEvents([]);
-        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length });
+        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length, durationMs });
       } catch (err) {
         const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"));
         if (!isAbort) {
@@ -348,7 +416,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
       setStatusLabel("");
       return resultMessages;
     },
-    [askPermission]
+    [askPermission, thinkingBudget]
   );
 
   // ─── Job queue runner (worktree + task planning + queue execution) ────────
@@ -480,6 +548,10 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         setPendingTaskCreate,
         changeMode,
         resetSessionUsage,
+        setThinkingBudget,
+        setShowConfigPanel,
+        currentModel: getCurrentModel(),
+        lastInputTokens: lastInputTokensRef.current,
       })(cmd);
     },
     [messages, exit, runAI, changeModel, runTaskQueue, startTaskPlanning, changeMode]
@@ -529,23 +601,38 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         return;
       }
 
-      logger.app.info("Mensagem do usuário recebida", { length: userInput.length, messageCount: messages.length });
+      // Expand @mentions
+      const expandedInput = await expandMentions(userInput);
 
-      const newMessages: Message[] = [
-        ...messages,
-        { role: "user", content: userInput },
-      ];
+      logger.app.info("Mensagem do usuário recebida", { length: expandedInput.length, messageCount: messages.length });
+
+      // Detect thinking keywords
+      const budget = detectThinkingBudget(expandedInput);
+      if (budget) setThinkingBudget(budget);
+
+      const userMsg: Message = {
+        role: "user",
+        content: expandedInput,
+        id: crypto.randomUUID(),
+      };
 
       // Auto-title session from first user message
       if (messages.length === 0 && !session.current.title) {
         session.current.title = userInput.slice(0, 80);
       }
 
+      // Apply microcompact before adding new message
+      const microcompacted = microcompact(messages);
+      const newMessages: Message[] = [
+        ...microcompacted,
+        userMsg,
+      ];
+
       setMessages(newMessages);
       setTurnEvents([]);
 
       let workingMessages = newMessages;
-      if (shouldCompact(workingMessages)) {
+      if (shouldCompact(workingMessages, lastInputTokensRef.current)) {
         setStatus("compacting");
         setStatusLabel("Compactando contexto…");
         try {
@@ -705,6 +792,18 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         />
       )}
 
+      {/* Config panel */}
+      {showConfigPanel && (
+        <ConfigPanel
+          currentModel={currentModelState}
+          onClose={() => setShowConfigPanel(false)}
+          onModelChange={(modelId) => {
+            changeModel(modelId);
+            session.current.model = modelId;
+          }}
+        />
+      )}
+
       {/* Question prompt */}
       {pendingQuestion && (
         <QuestionPrompt
@@ -757,7 +856,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
       )}
 
       {/* Input */}
-      {!pendingPermission && !pendingPlanApproval && !showModelSelector && !showSessionSelector && !showIntegrationSelector && !pendingLoginResolve && !pendingQuestion && (
+      {!pendingPermission && !pendingPlanApproval && !showModelSelector && !showSessionSelector && !showIntegrationSelector && !pendingLoginResolve && !pendingQuestion && !showConfigPanel && (
         <Input
           onSubmit={handleSubmit}
           disabled={isThinking}
@@ -771,6 +870,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         <Box flexDirection="row" gap={1}>
           <Text color={MODE_COLORS[permMode]}>{modeStatus}</Text>
           <Text dimColor>{process.platform === "darwin" ? "^C" : "Ctrl+C"} sair{isThinking ? " · esc para interromper" : ""}</Text>
+          {thinkingBudget && <Text color="cyan"> · 💭 thinking</Text>}
         </Box>
 
         <Box flexDirection="row" gap={1}>
@@ -780,11 +880,13 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
             const ctx = getModel(model).contextWindow;
             const pct = Math.min(100, Math.round((total / ctx) * 100));
             const bar = "█".repeat(Math.round((pct / 100) * 10)) + "░".repeat(10 - Math.round((pct / 100) * 10));
+            const cost = estimateCost(model, u);
             return total > 0 ? (
               <>
                 <Text dimColor>
                   {u.inputTokens > 0 ? `${(u.inputTokens / 1000).toFixed(1)}k in` : ""}
                   {u.outputTokens > 0 ? ` · ${(u.outputTokens / 1000).toFixed(1)}k out` : ""}
+                  {cost > 0 ? ` · $${cost.toFixed(4)}` : ""}
                 </Text>
                 <Text dimColor>│</Text>
                 <Text color={pct > 80 ? "red" : pct > 50 ? "yellow" : "gray"}>
