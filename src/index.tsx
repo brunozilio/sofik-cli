@@ -3,6 +3,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./App.tsx";
 import { loadSettings, validateSettings } from "./lib/settings.ts";
+import { setModel } from "./lib/anthropic.ts";
 import { logger } from "./lib/logger.ts";
 
 // ─── Nested session guard ────────────────────────────────────────────────────
@@ -19,6 +20,7 @@ process.env.SOFIK_ENTRY_POINT = "1";
 logger.app.info("Sofik AI iniciando", { cwd: process.cwd(), pid: process.pid, nodeVersion: process.version });
 
 const settings = loadSettings();
+if (settings.model) setModel(settings.model);
 const settingsErrors = validateSettings(settings);
 if (settingsErrors.length > 0) {
   logger.app.warn("Problemas nas configurações encontrados", { errors: settingsErrors });

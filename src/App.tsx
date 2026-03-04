@@ -383,6 +383,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
           id: crypto.randomUUID(),
           durationMs,
           costUSD,
+          events: evts.map(({ injectionWarning: _, ...e }) => e),
         };
 
         resultMessages = [

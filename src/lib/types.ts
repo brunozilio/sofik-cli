@@ -24,6 +24,8 @@ export interface Message {
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
   };
+  /** Turn events (tool calls, results, thinking) for rendering history */
+  events?: TurnEvent[];
 }
 
 export interface ToolResult {

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
-import type { Message, LocalContentBlock, TurnEvent } from "../lib/types.ts";
+import type { Message, TurnEvent } from "../lib/types.ts";
 import { Markdown } from "./Markdown.tsx";
 
 interface ChatProps {
@@ -38,7 +38,8 @@ function formatToolArgs(name: string, input: unknown): string {
   const keys = Object.keys(obj).slice(0, 1);
   if (keys.length === 0) return "";
   const k = keys[0]!;
-  const v = String(obj[k]);
+  const raw = obj[k];
+  const v = raw !== null && typeof raw === "object" ? JSON.stringify(raw) : String(raw);
   const trunc = v.length > 50 ? v.slice(0, 47) + "…" : v;
   return `(${trunc})`;
 }
@@ -201,6 +202,60 @@ function ToolResultBlock({
   );
 }
 
+// ── Render turn events (shared between live stream and history) ─────────────
+
+function renderEvents(events: TurnEvent[], keyPrefix: string, opts?: { costUSD?: number; durationMs?: number }): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+  while (i < events.length) {
+    const event = events[i]!;
+
+    if (event.type === "thinking" && event.text) {
+      nodes.push(<ThinkingBlock key={`${keyPrefix}-${i}`} text={event.text} />);
+      i++;
+      continue;
+    }
+
+    if (event.type === "text" && event.text) {
+      const isLast = i === events.length - 1;
+      nodes.push(
+        <Box key={`${keyPrefix}-${i}`} flexDirection="column" marginBottom={1}>
+          <Markdown content={event.text} />
+          {isLast && opts?.costUSD != null && opts.costUSD > 0 && (
+            <Text dimColor>
+              {`  ~$${opts.costUSD.toFixed(4)}`}
+              {opts.durationMs ? ` · ${(opts.durationMs / 1000).toFixed(1)}s` : ""}
+            </Text>
+          )}
+        </Box>
+      );
+      i++;
+      continue;
+    }
+
+    if (event.type === "tool_use") {
+      const nextEvent = events[i + 1];
+      const isRunning = !nextEvent || nextEvent.type !== "tool_result";
+      nodes.push(
+        <ToolUseBlock key={`${keyPrefix}-${i}`} name={event.name!} input={event.input} isRunning={isRunning} />
+      );
+      i++;
+      continue;
+    }
+
+    if (event.type === "tool_result") {
+      nodes.push(
+        <ToolResultBlock key={`${keyPrefix}-${i}`} result={event.result ?? ""} is_error={event.is_error ?? false} />
+      );
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+  return nodes;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export function Chat({ messages, turnEvents, status }: ChatProps) {
@@ -212,13 +267,14 @@ export function Chat({ messages, turnEvents, status }: ChatProps) {
           return <UserMessage key={`msg-${i}`} content={msg.content} />;
         }
         if (msg.role === "assistant") {
-          const text =
-            typeof msg.content === "string"
-              ? msg.content
-              : (msg.content as LocalContentBlock[])
-                  .filter((b): b is Extract<LocalContentBlock, { type: "text" }> => b.type === "text")
-                  .map((b) => b.text)
-                  .join("\n\n");
+          // If we have saved turn events, render them (preserves tool calls in history)
+          if (msg.events && msg.events.length > 0) {
+            const nodes = renderEvents(msg.events, `msg-${i}`, { costUSD: msg.costUSD, durationMs: msg.durationMs });
+            if (nodes.length === 0) return null;
+            return <Box key={`msg-${i}`} flexDirection="column">{nodes}</Box>;
+          }
+          // Fallback: text-only (old sessions or no events)
+          const text = typeof msg.content === "string" ? msg.content : "";
           if (!text.trim()) return null;
           return (
             <AssistantMessage
@@ -235,52 +291,7 @@ export function Chat({ messages, turnEvents, status }: ChatProps) {
       {/* Current turn: interleaved text + tool calls + results */}
       {turnEvents.length > 0 && (
         <Box flexDirection="column">
-          {(() => {
-            const nodes: React.ReactNode[] = [];
-            let i = 0;
-            while (i < turnEvents.length) {
-              const event = turnEvents[i]!;
-
-              if (event.type === "thinking" && event.text) {
-                nodes.push(
-                  <ThinkingBlock key={`te-${i}`} text={event.text} />
-                );
-                i++;
-                continue;
-              }
-
-              if (event.type === "text" && event.text) {
-                nodes.push(
-                  <Box key={`te-${i}`} flexDirection="column" marginBottom={1}>
-                    <Markdown content={event.text} />
-                  </Box>
-                );
-                i++;
-                continue;
-              }
-
-              if (event.type === "tool_use") {
-                const nextEvent = turnEvents[i + 1];
-                const isRunning = !nextEvent || nextEvent.type !== "tool_result";
-                nodes.push(
-                  <ToolUseBlock key={`te-${i}`} name={event.name!} input={event.input} isRunning={isRunning} />
-                );
-                i++;
-                continue;
-              }
-
-              if (event.type === "tool_result") {
-                nodes.push(
-                  <ToolResultBlock key={`te-${i}`} result={event.result ?? ""} is_error={event.is_error ?? false} />
-                );
-                i++;
-                continue;
-              }
-
-              i++;
-            }
-            return nodes;
-          })()}
+          {renderEvents(turnEvents, "te")}
         </Box>
       )}
 
