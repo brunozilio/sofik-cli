@@ -257,6 +257,21 @@ describe("listSessions", () => {
     // s2 was saved later → should appear before s1
     expect(idx2).toBeLessThan(idx1);
   });
+
+  test("returns [] when readdirSync throws (outer catch — line 88)", () => {
+    // Temporarily make fs.readdirSync throw to trigger the outer catch in listSessions()
+    const origReaddirSync = fs.readdirSync;
+    // @ts-ignore
+    fs.readdirSync = () => { throw new Error("EACCES: permission denied, scandir"); };
+    try {
+      const result = listSessions();
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBe(0);
+    } finally {
+      // @ts-ignore
+      fs.readdirSync = origReaddirSync;
+    }
+  });
 });
 
 // ─── searchSessions ───────────────────────────────────────────────────────────

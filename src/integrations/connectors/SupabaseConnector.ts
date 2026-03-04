@@ -30,8 +30,7 @@ function projectUrl(creds: IntegrationCredentials): string {
 }
 
 export class SupabaseConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "supabase",
       name: "Supabase",
       description: "Connect to Supabase for database queries, edge functions, storage, and project management.",
@@ -177,8 +176,7 @@ export class SupabaseConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const supabaseConnector = new SupabaseConnector();

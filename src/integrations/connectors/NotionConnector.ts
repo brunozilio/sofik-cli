@@ -14,8 +14,7 @@ function notionHeaders(token: string | undefined): Record<string, string> {
 }
 
 export class NotionConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "notion",
       name: "Notion",
       description: "Connect to Notion for page creation, database management, and workspace search.",
@@ -165,8 +164,7 @@ export class NotionConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const notionConnector = new NotionConnector();

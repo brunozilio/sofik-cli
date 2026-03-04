@@ -20,8 +20,7 @@ async function linearQuery(apiKey: string, query: string, variables?: Record<str
 }
 
 export class LinearConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "linear",
       name: "Linear",
       description: "Streamline engineering project management and issue tracking.",
@@ -82,8 +81,7 @@ export class LinearConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const linearConnector = new LinearConnector();

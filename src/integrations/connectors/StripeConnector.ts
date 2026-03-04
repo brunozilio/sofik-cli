@@ -4,8 +4,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class StripeConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "stripe",
       name: "Stripe",
       description: "Automate payment workflows, subscription management, and revenue operations.",
@@ -81,8 +80,7 @@ export class StripeConnector extends BaseConnector {
           return false;
         }
       },
-    };
-  }
+  };
 }
 
 export const stripeConnector = new StripeConnector();

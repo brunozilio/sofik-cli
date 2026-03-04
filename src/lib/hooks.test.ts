@@ -1,20 +1,29 @@
-import { mock, test, expect, describe, afterAll } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 
 const fetchHits: Array<{ url: string; body: unknown }> = [];
 let fetchShouldFail = false;
 
-mock.module("./fetchWithProxy.ts", () => ({
-  fetchWithProxy: async (url: string, init: unknown) => {
+// Use globalThis.fetch mock instead of mock.module to avoid contaminating
+// fetchWithProxy module for other test files (e.g. connector tests).
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  // @ts-ignore
+  globalThis.fetch = async (url: string, init: unknown): Promise<Response> => {
     if (fetchShouldFail) throw new Error("Network error");
     const body = init && typeof init === "object" && "body" in init
       ? JSON.parse((init as { body: string }).body)
       : null;
     fetchHits.push({ url, body });
     return new Response("ok", { status: 200 });
-  },
-}));
+  };
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 // Write SOFIK.md config before hooks.ts module is first used.
 // hooksConfig is null at module load time; it's only populated on first call to runPreToolUseHooks/runPostToolUseHooks.
@@ -43,7 +52,7 @@ const hookConfig = {
 fs.mkdirSync(sofik_dir, { recursive: true });
 fs.writeFileSync(sofik_md_path, "```json:hooks\n" + JSON.stringify(hookConfig) + "\n```");
 
-import { runPreToolUseHooks, runPostToolUseHooks } from "./hooks.ts";
+import { runPreToolUseHooks, runPostToolUseHooks, resetHooksConfig } from "./hooks.ts";
 
 afterAll(() => {
   if (originalSofik !== null) {
@@ -170,5 +179,57 @@ describe("runPostToolUseHooks", () => {
     } finally {
       fetchShouldFail = false;
     }
+  });
+});
+
+// ── loadHooksConfig coverage for uncovered lines 70-72 ───────────────────────
+// Lines 70-72 in hooks.ts are inside loadHooksConfig():
+//   line 70: `}` closing `if (jsonMatch)` — reached when file exists but has no json:hooks
+//   line 72: `}` closing the for loop — reached when the loop completes without returning
+//
+// We exercise this by running in a temp dir where:
+//   - SOFIK.md exists at cwd but has NO json:hooks block
+//   - No .sofik/SOFIK.md exists
+//   - The home ~/.sofik/SOFIK.md may or may not exist (we can't control it)
+// Result: loadHooksConfig returns {} — hooks are a no-op.
+
+describe("loadHooksConfig — no-json-hooks path (lines 70-72)", () => {
+  const origCwd = process.cwd();
+  let tmpDir: string;
+
+  beforeEach(() => {
+    // Isolated temp dir with a SOFIK.md that has NO json:hooks block
+    tmpDir = fs.mkdtempSync(path.join(path.dirname(sofik_dir), "sofik-hooks-no-json-"));
+    fs.writeFileSync(path.join(tmpDir, "SOFIK.md"), "# No hooks here\nJust regular markdown.", "utf-8");
+    process.chdir(tmpDir);
+    resetHooksConfig();
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    resetHooksConfig();
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
+  });
+
+  test("PreToolUse is a no-op when SOFIK.md has no json:hooks", async () => {
+    // loadHooksConfig finds SOFIK.md at cwd (line 65 succeeds) but jsonMatch is null (line 68 false)
+    // → line 70 (closing `}`) and line 72 (loop close) are executed → returns {}
+    await expect(runPreToolUseHooks("AnyTool", {})).resolves.toBeUndefined();
+  });
+
+  test("PostToolUse returns undefined when SOFIK.md has no json:hooks", async () => {
+    const result = await runPostToolUseHooks("AnyTool", {}, "some result");
+    expect(result).toBeUndefined();
+  });
+
+  test("loadHooksConfig returns {} when no candidate has json:hooks", async () => {
+    // All candidates: cwd SOFIK.md exists without json:hooks, others don't exist
+    // Lines 70, 72, 73 are all covered
+    await runPreToolUseHooks("TestLoad", {});
+    // Just verifying no error is thrown — hooks config is {} so nothing fires
+    const before = fetchHits.length;
+    await runPreToolUseHooks("TestLoad", {});
+    // No HTTP hooks should fire (config is {})
+    expect(fetchHits.length).toBe(before);
   });
 });

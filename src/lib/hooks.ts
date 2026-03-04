@@ -75,6 +75,11 @@ function loadHooksConfig(): HooksConfig {
 
 let hooksConfig: HooksConfig | null = null;
 
+/** Reset the cached hooks config — used in tests to force a fresh file read. */
+export function resetHooksConfig(): void {
+  hooksConfig = null;
+}
+
 function getHooks(): HooksConfig {
   if (!hooksConfig) hooksConfig = loadHooksConfig();
   return hooksConfig;

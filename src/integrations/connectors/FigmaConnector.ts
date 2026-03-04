@@ -9,8 +9,7 @@ function figmaHeaders(token: string | undefined): Record<string, string> {
 }
 
 export class FigmaConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "figma",
       name: "Figma",
       description: "Connect to Figma to read design files, export assets, and manage comments.",
@@ -127,8 +126,7 @@ export class FigmaConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const figmaConnector = new FigmaConnector();

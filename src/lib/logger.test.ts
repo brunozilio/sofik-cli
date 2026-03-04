@@ -239,6 +239,11 @@ describe("logger.permission", () => {
     expect(errorEntry?.cat).toBe("permission");
     expect(errorEntry?.msg).toBe(marker);
   });
+
+  test("permission.debug() writes to permission log", () => {
+    logger.permission.debug("perm debug");
+    expect(lastEntry("permission")?.level).toBe("debug");
+  });
 });
 
 // ─── session category ─────────────────────────────────────────────────────────
@@ -262,6 +267,13 @@ describe("logger.session", () => {
     const errorEntry = lastEntry("error");
     expect(errorEntry?.cat).toBe("session");
     expect(errorEntry?.msg).toBe(marker);
+  });
+
+  test("session.debug() writes to session log", () => {
+    const marker = `sess-debug-${Date.now()}`;
+    logger.session.debug(marker);
+    expect(lastEntry("session")?.level).toBe("debug");
+    expect(lastEntry("session")?.msg).toBe(marker);
   });
 });
 
@@ -312,6 +324,13 @@ describe("logger.auth", () => {
     logger.auth.error(marker);
     expect(lastEntry("error")?.cat).toBe("auth");
   });
+
+  test("auth.debug() writes to auth log", () => {
+    const marker = `auth-debug-${Date.now()}`;
+    logger.auth.debug(marker);
+    expect(lastEntry("auth")?.level).toBe("debug");
+    expect(lastEntry("auth")?.msg).toBe(marker);
+  });
 });
 
 // ─── job category ─────────────────────────────────────────────────────────────
@@ -334,6 +353,13 @@ describe("logger.job", () => {
     logger.job.error(marker);
     expect(lastEntry("error")?.cat).toBe("job");
   });
+
+  test("job.debug() writes to job log", () => {
+    const marker = `job-debug-${Date.now()}`;
+    logger.job.debug(marker);
+    expect(lastEntry("job")?.level).toBe("debug");
+    expect(lastEntry("job")?.msg).toBe(marker);
+  });
 });
 
 // ─── mcp category ─────────────────────────────────────────────────────────────
@@ -355,6 +381,11 @@ describe("logger.mcp", () => {
     const marker = `mcp-error-${Date.now()}`;
     logger.mcp.error(marker);
     expect(lastEntry("error")?.cat).toBe("mcp");
+  });
+
+  test("mcp.debug() writes to mcp log", () => {
+    logger.mcp.debug("mcp debug");
+    expect(lastEntry("mcp")?.level).toBe("debug");
   });
 });
 

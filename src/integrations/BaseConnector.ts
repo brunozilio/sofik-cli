@@ -1,7 +1,7 @@
 import type { ConnectorDefinition, IntegrationCredentials } from "../types/integration.ts";
 
 export abstract class BaseConnector {
-  abstract get definition(): ConnectorDefinition;
+  abstract readonly definition: ConnectorDefinition;
 
   /**
    * Execute a named action with the given credentials and parameters.

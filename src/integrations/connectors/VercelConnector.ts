@@ -12,8 +12,7 @@ function vercelHeaders(token: string | undefined): Record<string, string> {
 }
 
 export class VercelConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "vercel",
       name: "Vercel",
       description: "Connect to Vercel for deployment management, project configuration, and domain handling.",
@@ -152,8 +151,7 @@ export class VercelConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const vercelConnector = new VercelConnector();

@@ -4,8 +4,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class GitHubConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "github",
       name: "GitHub",
       description: "Connect to GitHub for code review automation, issue tracking, and CI/CD triggers.",
@@ -185,8 +184,7 @@ export class GitHubConnector extends BaseConnector {
           return false;
         }
       },
-    };
-  }
+  };
 }
 
 export const githubConnector = new GitHubConnector();

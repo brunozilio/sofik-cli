@@ -14,6 +14,12 @@ export { randomUUID };
 
 let _db: Database | null = null;
 
+/** Reset the singleton — used in tests to exercise different DATABASE_URL paths. */
+export function resetDb(): void {
+  if (_db) { try { _db.close(); } catch { /* ignore */ } }
+  _db = null;
+}
+
 export function getDb(): Database {
   if (!_db) {
     const dbPath = process.env.DATABASE_URL ?? path.join(os.homedir(), ".sofik", "sofik.db");

@@ -5,8 +5,7 @@ import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 const BASE_URL = "https://api.context7.com/v1";
 
 export class Context7Connector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "context7",
       name: "Context7",
       description: "Up-to-date library documentation and API references via Context7. Resolve library IDs and fetch live docs for AI-assisted coding.",
@@ -66,8 +65,7 @@ export class Context7Connector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const context7Connector = new Context7Connector();

@@ -1,3 +1,7 @@
+// Use in-memory SQLite so task tests don't touch the real DB.
+// Must be set before any import that could trigger getDb().
+process.env.DATABASE_URL = ":memory:";
+
 import { mock, test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,15 +13,12 @@ const TEST_DIR = mkdtempSync(join(tmpdir(), "sofik-commands-"));
 const ORIG_CWD = process.cwd();
 const COMMANDS_DIR = join(TEST_DIR, ".sofik", "commands");
 
-let _mockTasks: Array<{ id: string; status: string; context: string }> = [];
-
 // Do NOT mock ./skills.ts — it has its own test file and the mock would break
 // systemPrompt.test.ts. Instead, we use real files in the temp dir.
-
-mock.module("../integrations/connectors/index.ts", () => ({
-  getAllConnectors: () => [],
-  getAllProviders: () => [],
-}));
+// Do NOT mock ../db/queries/tasks.ts — it has its own test file and the mock
+// would break tasks.test.ts. Instead, use real in-memory DB.
+// Do NOT mock ../integrations/connectors/index.ts — it has its own test file.
+// It's pure data (connector definitions) and safe to use the real module.
 
 mock.module("./models.ts", () => ({
   MODELS: {
@@ -45,12 +46,10 @@ mock.module("./models.ts", () => ({
   listModels: () => "",
 }));
 
-mock.module("../db/queries/tasks.ts", () => ({
-  listTasks: () => _mockTasks,
-}));
-
 import { BUILTIN_COMMANDS, SLASH_COMMANDS, getSlashCommands } from "./commands.ts";
 import type { SlashCommand, SlashSubCommand, CommandArg } from "./commands.ts";
+import { createTask } from "../db/queries/tasks.ts";
+import { dbRun } from "../db/index.ts";
 
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
@@ -64,7 +63,8 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  _mockTasks = [];
+  // Reset DB task state
+  dbRun("DELETE FROM tasks", []);
   // Clear all custom command files between tests
   if (existsSync(COMMANDS_DIR)) {
     for (const f of readdirSync(COMMANDS_DIR)) {
@@ -230,7 +230,7 @@ describe("BUILTIN_COMMANDS", () => {
     });
 
     test("cancel args function returns empty array when no tasks", () => {
-      _mockTasks = [];
+      // DB is clean (beforeEach deletes all tasks)
       const cmd = BUILTIN_COMMANDS.find((c) => c.name === "tasks")!;
       const cancel = cmd.subcommands!.find((s) => s.name === "cancel")!;
       const argsFn = cancel.args as () => CommandArg[];
@@ -240,43 +240,71 @@ describe("BUILTIN_COMMANDS", () => {
     });
 
     test("cancel args function returns pending/planning tasks", () => {
-      _mockTasks = [
-        { id: "abc12345def", status: "pending", context: "do something important" },
-        { id: "xyz98765abc", status: "planning", context: "plan a big feature" },
-        { id: "done111222", status: "done", context: "already finished" },
-      ];
+      const t1 = createTask("do something important");
+      const t2 = createTask("plan a big feature", { status: "planning" });
+      createTask("already finished", { status: "done" });
       const cmd = BUILTIN_COMMANDS.find((c) => c.name === "tasks")!;
       const cancel = cmd.subcommands!.find((s) => s.name === "cancel")!;
       const argsFn = cancel.args as () => CommandArg[];
       const result = argsFn();
       expect(result.length).toBe(2);
-      expect(result[0]!.name).toBe("abc12345");
+      expect(result[0]!.name).toBe(t1.id.slice(0, 8));
       expect(result[0]!.description).toBe("do something important");
-      expect(result[1]!.name).toBe("xyz98765");
+      expect(result[1]!.name).toBe(t2.id.slice(0, 8));
     });
 
     test("cancel args function filters out non-pending tasks", () => {
-      _mockTasks = [
-        { id: "running1", status: "running", context: "currently running" },
-        { id: "failed11", status: "failed", context: "already failed" },
-        { id: "pending1", status: "pending", context: "waiting to run" },
-      ];
+      const running = createTask("currently running");
+      dbRun("UPDATE tasks SET status = 'running' WHERE id = ?", [running.id]);
+      const failed = createTask("already failed");
+      dbRun("UPDATE tasks SET status = 'failed' WHERE id = ?", [failed.id]);
+      const pending = createTask("waiting to run");
       const cmd = BUILTIN_COMMANDS.find((c) => c.name === "tasks")!;
       const cancel = cmd.subcommands!.find((s) => s.name === "cancel")!;
       const argsFn = cancel.args as () => CommandArg[];
       const result = argsFn();
       expect(result.length).toBe(1);
-      expect(result[0]!.name).toBe("pending1");
+      expect(result[0]!.name).toBe(pending.id.slice(0, 8));
     });
 
     test("cancel args function truncates context to 60 chars", () => {
       const longContext = "a".repeat(80);
-      _mockTasks = [{ id: "longctx1abc", status: "pending", context: longContext }];
+      createTask(longContext);
       const cmd = BUILTIN_COMMANDS.find((c) => c.name === "tasks")!;
       const cancel = cmd.subcommands!.find((s) => s.name === "cancel")!;
       const argsFn = cancel.args as () => CommandArg[];
       const result = argsFn();
       expect(result[0]!.description!.length).toBe(60);
+    });
+
+    test("cancel args function returns [] when listTasks() throws (catch branch)", () => {
+      // Drop the tasks table so listTasks() throws a SQL error → catch returns []
+      dbRun("DROP TABLE IF EXISTS tasks", []);
+      try {
+        const cmd = BUILTIN_COMMANDS.find((c) => c.name === "tasks")!;
+        const cancel = cmd.subcommands!.find((s) => s.name === "cancel")!;
+        const argsFn = cancel.args as () => CommandArg[];
+        const result = argsFn();
+        expect(Array.isArray(result)).toBe(true);
+        expect(result.length).toBe(0);
+      } finally {
+        // Recreate the tasks table for subsequent tests
+        dbRun(`
+          CREATE TABLE IF NOT EXISTS tasks (
+            id TEXT PRIMARY KEY,
+            context TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            position INTEGER NOT NULL DEFAULT 0,
+            worktree_path TEXT,
+            worktree_branch TEXT,
+            plan TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at TEXT,
+            completed_at TEXT
+          )
+        `, []);
+      }
     });
 
     test("has clear subcommand", () => {

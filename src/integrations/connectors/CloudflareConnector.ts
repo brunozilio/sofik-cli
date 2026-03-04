@@ -21,8 +21,7 @@ function accountId(creds: IntegrationCredentials): string {
 }
 
 export class CloudflareConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "cloudflare",
       name: "Cloudflare Developer Platform",
       description: "Connect to Cloudflare for Workers, Pages, D1, R2, KV, cache purging, and zone management.",
@@ -227,8 +226,7 @@ export class CloudflareConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const cloudflareConnector = new CloudflareConnector();

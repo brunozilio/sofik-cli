@@ -19,8 +19,7 @@ function domain(creds: IntegrationCredentials): string {
 }
 
 export class AtlassianConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "atlassian",
       name: "Atlassian",
       description: "Connect to Atlassian suite: Jira for issue tracking and Confluence for documentation.",
@@ -206,8 +205,7 @@ export class AtlassianConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const atlassianConnector = new AtlassianConnector();

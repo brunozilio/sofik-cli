@@ -3,8 +3,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class PlaywrightConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "playwright",
       name: "Playwright",
       description: "Browser automation and testing via Playwright. Run tests, take screenshots, and check pages.",
@@ -110,8 +109,7 @@ const { chromium } = require('playwright');
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const playwrightConnector = new PlaywrightConnector();

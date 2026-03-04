@@ -3,8 +3,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class SentryConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "sentry",
       name: "Sentry",
       description: "Automate error triage, incident response, and issue management.",
@@ -74,8 +73,7 @@ export class SentryConnector extends BaseConnector {
           },
         },
       ],
-    };
-  }
+  };
 }
 
 export const sentryConnector = new SentryConnector();

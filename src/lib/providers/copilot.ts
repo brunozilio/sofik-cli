@@ -12,6 +12,11 @@ const COPILOT_CHAT_URL  = "https://api.githubcopilot.com/chat/completions";
 // Short-lived Copilot token cache (~10 min TTL)
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
+/** Reset the in-memory token cache — used in tests to force a fresh network call. */
+export function resetCopilotTokenCache(): void {
+  cachedToken = null;
+}
+
 async function getCopilotToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     logger.llm.debug("Token Copilot recuperado do cache");

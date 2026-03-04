@@ -25,7 +25,7 @@ const SCOPES = [
 ];
 
 const REDIRECT_PORT = 54321;
-const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
+const redirectUri = (port: number = REDIRECT_PORT) => `http://localhost:${port}/callback`;
 
 const TOKEN_PATH = path.join(os.homedir(), ".sofik", "anthropic-token.json");
 
@@ -85,15 +85,15 @@ function openBrowser(url: string): void {
 }
 
 // ── Local callback server ─────────────────────────────────────────────────────
-function waitForCallback(): Promise<string> {
+function waitForCallback(port: number = REDIRECT_PORT): Promise<string> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      const url = new URL(req.url ?? "/", `http://localhost:${REDIRECT_PORT}`);
+      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
       const code = url.searchParams.get("code");
       const error = url.searchParams.get("error");
 
       const isSuccess = !error;
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Connection": "close" });
       res.end(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -312,7 +312,7 @@ function waitForCallback(): Promise<string> {
       else reject(new Error("No authorization code received"));
     });
 
-    server.listen(REDIRECT_PORT, () => {
+    server.listen(port, () => {
       // Server is ready
     });
 
@@ -329,11 +329,11 @@ function waitForCallback(): Promise<string> {
 }
 
 // ── Token exchange ────────────────────────────────────────────────────────────
-async function exchangeCode(code: string, codeVerifier: string, state: string): Promise<OAuthToken> {
+async function exchangeCode(code: string, codeVerifier: string, state: string, port: number = REDIRECT_PORT): Promise<OAuthToken> {
   const body = {
     grant_type: "authorization_code",
     code,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri(port),
     client_id: CLIENT_ID,
     code_verifier: codeVerifier,
     state,
@@ -411,7 +411,7 @@ export async function refreshToken(token: OAuthToken): Promise<OAuthToken> {
 }
 
 // ── Main login flow ───────────────────────────────────────────────────────────
-export async function login(onUrl?: (url: string, ssh: boolean) => void): Promise<OAuthToken> {
+export async function login(onUrl?: (url: string, ssh: boolean) => void, port: number = REDIRECT_PORT): Promise<OAuthToken> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = randomBytes(16).toString("hex");
@@ -420,7 +420,7 @@ export async function login(onUrl?: (url: string, ssh: boolean) => void): Promis
     code: "true",
     client_id: CLIENT_ID,
     response_type: "code",
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri(port),
     scope: SCOPES.join(" "),
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -440,10 +440,10 @@ export async function login(onUrl?: (url: string, ssh: boolean) => void): Promis
     openBrowser(authUrl);
   }
 
-  const code = await waitForCallback();
+  const code = await waitForCallback(port);
   logger.auth.info("Código de autorização OAuth recebido");
 
-  const token = await exchangeCode(code, codeVerifier, state);
+  const token = await exchangeCode(code, codeVerifier, state, port);
   logger.auth.info("Login OAuth concluído com sucesso");
 
   saveToken(token);

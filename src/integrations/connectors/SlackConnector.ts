@@ -4,8 +4,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class SlackConnector extends BaseConnector {
-  get definition(): ConnectorDefinition {
-    return {
+  readonly definition: ConnectorDefinition = {
       provider: "slack",
       name: "Slack",
       description: "Send notifications, post to channels, and respond to slash commands.",
@@ -73,8 +72,7 @@ export class SlackConnector extends BaseConnector {
           return false;
         }
       },
-    };
-  }
+  };
 }
 
 export const slackConnector = new SlackConnector();
