@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput, useStdin } from "ink";
 import { Chat } from "./components/Chat.tsx";
 import { Input } from "./components/Input.tsx";
 import { Spinner } from "./components/Spinner.tsx";
@@ -61,6 +61,7 @@ import {
 import { createSlashHandler } from "./lib/slash-handler.ts";
 import { createJobQueueRunner } from "./lib/job-queue-runner.ts";
 import { logger } from "./lib/logger.ts";
+import { onBackgroundTaskComplete } from "./lib/backgroundTasks.ts";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,8 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/naming-convention
+  const { internal_eventEmitter } = useStdin();
   const [messages, setMessages] = useState<Message[]>(initialSession?.messages ?? []);
   const [turnEvents, setTurnEvents] = useState<TurnEvent[]>([]);
   const [status, setStatus] = useState<AgentStatus>("idle");
@@ -191,6 +194,16 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
     onAskUser((req) => {
       setPendingQuestion(req);
     });
+  }, []);
+
+  // Notify when background tasks complete
+  useEffect(() => {
+    const unsub = onBackgroundTaskComplete((task) => {
+      const icon = task.status === "completed" ? "✓" : "✗";
+      const statusText = task.status === "completed" ? "completed" : task.status === "stopped" ? "stopped" : "failed";
+      setSystemMessage(`${icon} Background task '${task.description}' ${statusText}.`);
+    });
+    return unsub;
   }, []);
 
   // ─── Permission prompt ───────────────────────────────────────────────────
@@ -286,11 +299,16 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
           abortController.signal
         );
 
+        setStatus("responding");
+        let lastRender = 0;
         for await (const chunk of stream) {
-          setStatus("responding");
           fullText += chunk;
           currentText += chunk;
-          setTurnEvents([...evts, { type: "text", text: currentText }]);
+          const now = Date.now();
+          if (now - lastRender > 100) {
+            setTurnEvents([...evts, { type: "text", text: currentText }]);
+            lastRender = now;
+          }
         }
 
         flushText();
@@ -423,18 +441,21 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
     { isActive: status !== "idle" }
   );
 
-  // Shift+Tab: cycle permission mode (ask → acceptEdits → auto → ask)
-  useInput(
-    (_, key) => {
-      if (key.tab && key.shift) {
+  // Shift+Tab: cycle permission mode (ask → plan → auto → ask)
+  // Uses raw \x1b[Z sequence directly to avoid Ink key-parsing differences on Linux.
+  useEffect(() => {
+    if (status !== "idle") return;
+    const handler = (input: string) => {
+      if (input === "\x1b[Z") {
         const modes = ["ask", "plan", "auto"] as const;
         const idx = modes.indexOf(permMode as "ask" | "plan" | "auto");
         const next = modes[(idx + 1) % modes.length] as PermissionMode;
         changeMode(next);
       }
-    },
-    { isActive: status === "idle" }
-  );
+    };
+    internal_eventEmitter.on("input", handler);
+    return () => { internal_eventEmitter.off("input", handler); };
+  }, [status, permMode, changeMode, internal_eventEmitter]);
 
   // ─── Slash command handler ────────────────────────────────────────────────
 
@@ -722,16 +743,14 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         </Box>
       )}
 
-      {/* Spinner while processing */}
-      {isThinking && status !== "responding" && !pendingPermission && activeTasks.length === 0 && (
+      {/* Spinner while processing (hidden during tool_use — running tool is shown inline in Chat) */}
+      {isThinking && status !== "responding" && status !== "tool_use" && !pendingPermission && activeTasks.length === 0 && (
         <Box marginBottom={1}>
           <Spinner
             label={
               status === "compacting"
                 ? "Compactando contexto…"
-                : status === "tool_use"
-                  ? statusLabel
-                  : "Pensando…"
+                : "Pensando…"
             }
           />
         </Box>

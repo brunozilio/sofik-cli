@@ -285,10 +285,10 @@ export class AnthropicProvider implements LLMProvider {
       logger.llm.info("Turno LLM concluído", { model, stopReason, toolUseCount: toolUses.length, turn: turnIndex });
 
       if (stopReason !== "tool_use" || toolUses.length === 0) {
-        // If max_tokens hit mid-tool-use, add placeholder tool_results so the
-        // conversation history stays valid for the next user message.
+        // If max_tokens hit mid-tool-use, add placeholder tool_results and
+        // continue the loop so the LLM can recover and resume the task.
         if (stopReason === "max_tokens" && toolUses.length > 0) {
-          logger.llm.warn("max_tokens atingido durante tool_use — adicionando tool_results de erro", {
+          logger.llm.warn("max_tokens atingido durante tool_use — adicionando tool_results de erro e continuando", {
             model, toolCount: toolUses.length,
           });
           apiMessages.push({
@@ -296,10 +296,14 @@ export class AnthropicProvider implements LLMProvider {
             content: toolUses.map((t) => ({
               type: "tool_result",
               tool_use_id: t.id,
-              content: "Error: Response truncated due to max_tokens limit.",
+              content: "Error: Response truncated due to max_tokens limit. Please continue from where you left off.",
               is_error: true,
             })),
           });
+          if (maxTurns !== undefined && turnIndex >= maxTurns) break;
+          contentBlocks.length = 0;
+          turnIndex++;
+          continue;
         }
         break;
       }

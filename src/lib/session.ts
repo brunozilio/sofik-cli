@@ -166,7 +166,13 @@ export function getProjectMemoryDir(cwd = process.cwd()): string {
 export function loadProjectMemory(cwd = process.cwd()): string | null {
   const memPath = path.join(getProjectMemoryDir(cwd), "MEMORY.md");
   try {
-    return fs.readFileSync(memPath, "utf-8");
+    const content = fs.readFileSync(memPath, "utf-8");
+    const lines = content.split("\n");
+    if (lines.length > 200) {
+      return lines.slice(0, 200).join("\n")
+        + "\n\n[MEMORY.md truncated at 200 lines. Create separate topic files for detailed notes and link to them from MEMORY.md.]";
+    }
+    return content;
   } catch {
     return null;
   }

@@ -84,7 +84,7 @@ function UserMessage({ content }: { content: string }) {
   );
 }
 
-function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
+function ToolUseBlock({ name, input, isRunning }: { name: string; input: unknown; isRunning?: boolean }) {
   const args = formatToolArgs(name, input);
   const color = toolColor(name);
   return (
@@ -92,21 +92,7 @@ function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
       <Text color={color} bold>⏺ </Text>
       <Text bold color={color}>{name}</Text>
       <Text dimColor>{args}</Text>
-    </Box>
-  );
-}
-
-/** Compact summary of a batch of tool calls */
-function ToolBatchSummary({ tools }: { tools: Array<{ name: string; input: unknown }> }) {
-  const summary = tools
-    .map(({ name, input }) => {
-      const args = formatToolArgs(name, input);
-      return `${name}${args}`;
-    })
-    .join(", ");
-  return (
-    <Box flexDirection="row" marginBottom={1}>
-      <Text dimColor>[{tools.length} ferramentas: {summary.slice(0, 120)}{summary.length > 120 ? "…" : ""}]</Text>
+      {isRunning && <Text dimColor> …</Text>}
     </Box>
   );
 }
@@ -221,41 +207,21 @@ export function Chat({ messages, turnEvents, status }: ChatProps) {
                 continue;
               }
 
-              // Collect consecutive tool_use+tool_result pairs for compact display
               if (event.type === "tool_use") {
-                const batch: Array<{ name: string; input: unknown }> = [];
-                const results: Array<{ result: string; is_error: boolean }> = [];
-                let j = i;
-                // Scan ahead: collect all consecutive tool_use/tool_result pairs
-                while (j < turnEvents.length && (turnEvents[j]!.type === "tool_use" || turnEvents[j]!.type === "tool_result")) {
-                  const e = turnEvents[j]!;
-                  if (e.type === "tool_use") batch.push({ name: e.name!, input: e.input });
-                  else if (e.type === "tool_result") results.push({ result: e.result ?? "", is_error: e.is_error ?? false });
-                  j++;
-                }
-                const batchSize = j - i;
+                const nextEvent = turnEvents[i + 1];
+                const isRunning = !nextEvent || nextEvent.type !== "tool_result";
+                nodes.push(
+                  <ToolUseBlock key={`te-${i}`} name={event.name!} input={event.input} isRunning={isRunning} />
+                );
+                i++;
+                continue;
+              }
 
-                if (batch.length > 2) {
-                  // Show compact summary for 3+ tool calls
-                  nodes.push(<ToolBatchSummary key={`batch-${i}`} tools={batch} />);
-                  // Show only errors from results
-                  results
-                    .filter(r => r.is_error)
-                    .forEach((r, ri) => nodes.push(
-                      <ToolResultBlock key={`batch-err-${i}-${ri}`} result={r.result} is_error={true} />
-                    ));
-                } else {
-                  // Show individual tool calls for 1-2
-                  for (let k = i; k < j; k++) {
-                    const e = turnEvents[k]!;
-                    if (e.type === "tool_use") {
-                      nodes.push(<ToolUseBlock key={`te-${k}`} name={e.name!} input={e.input} />);
-                    } else if (e.type === "tool_result") {
-                      nodes.push(<ToolResultBlock key={`te-${k}`} result={e.result ?? ""} is_error={e.is_error ?? false} />);
-                    }
-                  }
-                }
-                i = j;
+              if (event.type === "tool_result") {
+                nodes.push(
+                  <ToolResultBlock key={`te-${i}`} result={event.result ?? ""} is_error={event.is_error ?? false} />
+                );
+                i++;
                 continue;
               }
 

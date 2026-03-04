@@ -45,6 +45,48 @@ function sanitizeBranchName(name: string): string {
     .slice(0, 50) || "worktree";
 }
 
+// ─── Programmatic helper for agent isolation ───────────────────────────────
+
+/**
+ * Create a worktree for agent isolation. Returns { path, branch } on success, null on failure.
+ * The caller is responsible for cleanup after the agent finishes.
+ */
+export async function createWorktreeForIsolation(name: string): Promise<{ path: string; branch: string } | null> {
+  const cwd = process.cwd();
+  if (!isGitRepo(cwd)) return null;
+
+  const branchSuffix = sanitizeBranchName(name);
+  const newBranch = `worktree/${branchSuffix}`;
+
+  let gitRoot: string;
+  try {
+    gitRoot = execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8" }).trim();
+  } catch {
+    return null;
+  }
+
+  const worktreesBase = path.join(gitRoot, ".sofik", "worktrees");
+  const worktreePath = path.join(worktreesBase, branchSuffix);
+
+  if (fs.existsSync(worktreePath)) {
+    return { path: worktreePath, branch: newBranch };
+  }
+
+  fs.mkdirSync(worktreesBase, { recursive: true });
+
+  try {
+    execSync(`git worktree add -b "${newBranch}" "${worktreePath}"`, {
+      cwd: gitRoot,
+      encoding: "utf-8",
+    });
+    logger.tool.info("createWorktreeForIsolation: worktree criado", { worktreePath, branch: newBranch });
+    return { path: worktreePath, branch: newBranch };
+  } catch (err) {
+    logger.tool.error("createWorktreeForIsolation: falhou", { name, error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
 // ─── Tool ──────────────────────────────────────────────────────────────────
 
 export const enterWorktreeTool: ToolDefinition = {

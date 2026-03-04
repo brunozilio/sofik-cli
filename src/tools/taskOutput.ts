@@ -1,5 +1,5 @@
 import type { ToolDefinition } from "../lib/types.ts";
-import { agentRegistry } from "./agent.ts";
+import { backgroundTaskRegistry } from "../lib/backgroundTasks.ts";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -7,18 +7,19 @@ function sleep(ms: number): Promise<void> {
 
 export const taskOutputTool: ToolDefinition = {
   name: "TaskOutput",
-  description: `Retrieves output from a running or completed background agent.
-- Takes a task_id parameter identifying the agent (returned by Agent with run_in_background: true)
-- Returns the agent's output along with status information
-- Use block: true (default) to wait for agent completion
-- Use block: false for a non-blocking check of current status
-- Task IDs start with 'a' followed by hex digits (e.g. "a3f2b1c4...")`,
+  description: `Retrieves output from a running or completed task (background shell, agent, or remote session)
+- Takes a task_id parameter identifying the task
+- Returns the task output along with status information
+- Use block=true (default) to wait for task completion
+- Use block=false for non-blocking check of current status
+- Task IDs can be found using the /tasks command
+- Works with all task types: background shells, async agents, and remote sessions`,
   input_schema: {
     type: "object",
     properties: {
       task_id: {
         type: "string",
-        description: "The agent ID to get output from (returned by Agent tool)",
+        description: "The task ID to get output from",
       },
       block: {
         type: "boolean",
@@ -39,23 +40,24 @@ export const taskOutputTool: ToolDefinition = {
       600_000
     );
 
-    const state = agentRegistry.get(taskId);
-    if (!state) {
+    const task = backgroundTaskRegistry.get(taskId);
+    if (!task) {
       return JSON.stringify({
-        error: `Agent not found: "${taskId}". Only agents started in the current session are tracked.`,
+        error: `Task not found: "${taskId}". Only tasks started in the current session are tracked.`,
       });
     }
 
-    if (block && state.status === "running") {
-      await Promise.race([state.promise, sleep(timeoutMs)]);
+    if (block && task.status === "running") {
+      await Promise.race([task.promise, sleep(timeoutMs)]);
     }
 
     // Re-read after potential await
-    const current = agentRegistry.get(taskId)!;
+    const current = backgroundTaskRegistry.get(taskId)!;
     return JSON.stringify({
       task_id: taskId,
+      type: current.type,
       status: current.status,
-      output: current.output,
+      output: current.partialOutput,
       outputFile: current.outputFile,
       transcriptFile: current.transcriptFile,
       startedAt: current.startedAt,

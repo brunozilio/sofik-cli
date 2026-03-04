@@ -1,6 +1,12 @@
 import { spawn } from "child_process";
+import { randomBytes } from "crypto";
+import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
 import type { ToolDefinition } from "../lib/types.ts";
 import { logger } from "../lib/logger.ts";
+import { backgroundTaskRegistry, notifyTaskComplete } from "../lib/backgroundTasks.ts";
+import type { BackgroundTask } from "../lib/backgroundTasks.ts";
 
 const TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 30_000;
@@ -15,6 +21,10 @@ function truncate(output: string): string {
     `\n\n[... ${output.length - MAX_OUTPUT_CHARS} chars truncated ...]\n\n` +
     output.slice(-half)
   );
+}
+
+function getOutputPath(taskId: string): string {
+  return path.join(os.homedir(), ".sofik", "agent-output", `${taskId}.output`);
 }
 
 export const bashTool: ToolDefinition = {
@@ -38,6 +48,7 @@ While the Bash tool can do similar things, it's better to use the built-in tools
  - Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of \`cd\`. You may use \`cd\` if the User explicitly requests it.
  - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).
+ - You can use the \`run_in_background\` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. Use TaskOutput to read the output. Use TaskStop to cancel.
  - Write a clear, concise description of what your command does. For simple commands, keep it brief (5-10 words). For complex commands (piped commands, obscure flags, or anything hard to understand at a glance), include enough context so that the user can understand what your command will do.
  - When issuing multiple commands:
   - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.
@@ -67,6 +78,10 @@ While the Bash tool can do similar things, it's better to use the built-in tools
         type: "string",
         description: "Short description of what this command does",
       },
+      run_in_background: {
+        type: "boolean",
+        description: "If true, executes the command without blocking and returns immediately with a task_id. Use TaskOutput to retrieve the result. Use TaskStop to cancel.",
+      },
     },
     required: ["command"],
   },
@@ -74,6 +89,94 @@ While the Bash tool can do similar things, it's better to use the built-in tools
     const command = input["command"] as string;
     const description = input["description"] as string | undefined;
     const timeout = (input["timeout"] as number | undefined) ?? TIMEOUT_MS;
+    const runInBackground = (input["run_in_background"] as boolean | undefined) ?? false;
+
+    // ── Background mode ────────────────────────────────────────────────────────
+    if (runInBackground) {
+      const taskId = `bash-${randomBytes(8).toString("hex")}`;
+      const outputFile = getOutputPath(taskId);
+      fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+
+      const controller = new AbortController();
+      let partialOutput = "";
+
+      const proc = spawn("bash", ["-c", command], {
+        cwd: shellCwd,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      controller.signal.addEventListener("abort", () => {
+        proc.kill("SIGKILL");
+      });
+
+      const promise = new Promise<string>((resolve) => {
+        proc.stdout.on("data", (d: Buffer) => {
+          const chunk = d.toString();
+          partialOutput += chunk;
+          const task = backgroundTaskRegistry.get(taskId);
+          if (task) task.partialOutput = partialOutput;
+          try { fs.appendFileSync(outputFile, chunk, "utf8"); } catch { /* ignore */ }
+        });
+        proc.stderr.on("data", (d: Buffer) => {
+          const chunk = d.toString();
+          partialOutput += chunk;
+          const task = backgroundTaskRegistry.get(taskId);
+          if (task) task.partialOutput = partialOutput;
+          try { fs.appendFileSync(outputFile, chunk, "utf8"); } catch { /* ignore */ }
+        });
+        proc.on("close", (code) => {
+          const task = backgroundTaskRegistry.get(taskId);
+          if (task) {
+            if (task.status !== "stopped") {
+              task.status = code === 0 ? "completed" : "failed";
+            }
+            task.endedAt = Date.now();
+            task.partialOutput = partialOutput;
+          }
+          notifyTaskComplete(taskId);
+          resolve(partialOutput);
+        });
+        proc.on("error", (err) => {
+          const task = backgroundTaskRegistry.get(taskId);
+          if (task) {
+            if (task.status !== "stopped") task.status = "failed";
+            task.endedAt = Date.now();
+          }
+          notifyTaskComplete(taskId);
+          resolve(`Error: ${err.message}`);
+        });
+      });
+
+      const bgTask: BackgroundTask = {
+        taskId,
+        type: "bash",
+        description: description ?? command.slice(0, 100),
+        status: "running",
+        partialOutput: "",
+        outputFile,
+        promise,
+        controller,
+        startedAt: Date.now(),
+      };
+      backgroundTaskRegistry.set(taskId, bgTask);
+
+      logger.tool.info("Bash: iniciado em background", {
+        taskId,
+        command: command.slice(0, 200),
+        description,
+        cwd: shellCwd,
+      });
+
+      return JSON.stringify({
+        taskId,
+        outputFile,
+        status: "running",
+        message: `Bash command started in background. Use TaskOutput tool with task_id: "${taskId}" to retrieve results. Use TaskStop with task_id: "${taskId}" to cancel.`,
+      });
+    }
+
+    // ── Foreground mode ────────────────────────────────────────────────────────
     const commandWithCwd = `${command}\necho "__CWD__=$(pwd)"`;
 
     const start = Date.now();

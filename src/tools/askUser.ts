@@ -61,6 +61,7 @@ export const askUserQuestionTool: ToolDefinition = {
                 properties: {
                   label: { type: "string", description: "Option display text" },
                   description: { type: "string", description: "Option explanation" },
+                  markdown: { type: "string", description: "Preview content shown in a monospace box when this option is focused. Use for ASCII mockups, code snippets, or diagrams that help users visually compare options. Supports multi-line text." },
                 },
                 required: ["label"],
               },
@@ -77,9 +78,16 @@ export const askUserQuestionTool: ToolDefinition = {
         minItems: 1,
         maxItems: 4,
       },
+      metadata: {
+        type: "object",
+        description: "Optional metadata for tracking and analytics purposes. Not displayed to user.",
+        properties: {
+          source: { type: "string", description: "Optional identifier for the source of this question (e.g., 'remember' for /remember command). Used for analytics tracking." },
+        },
+      },
       annotations: {
         type: "object",
-        description: "Optional metadata (ignored)",
+        description: "Optional per-question annotations from the user. Not displayed to user.",
       },
       answers: {
         type: "object",

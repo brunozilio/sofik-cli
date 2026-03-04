@@ -43,12 +43,21 @@ Rules:
   const skillsSection =
     skills.length > 0
       ? `\n<skills>\nThe following skills are available via the Skill tool:\n${skills
-          .map((s) => `- **${s.name}**: ${s.description}`)
-          .join("\n")}\n\nCall Skill with skill='list' to see all skills with details.\n</skills>`
+          .map((s) => {
+            let line = `- **${s.name}**: ${s.description}`;
+            if (s.triggers?.length) line += `\n  TRIGGER when: ${s.triggers.join(", ")}`;
+            return line;
+          })
+          .join("\n")}
+
+IMPORTANT: When the conditions for a skill's TRIGGER are met in the user's request or code context, proactively invoke the skill using the Skill tool BEFORE responding. Do not wait for the user to ask.
+
+Call Skill with skill='list' to see all skills with details.
+</skills>`
       : "";
 
   const projectMemorySection = projectMemory
-    ? `\n<project_memory>\n${projectMemory}\n</project_memory>`
+    ? `\n# Auto memory\nYou have a persistent project memory file at MEMORY.md. Keep it under 200 lines — content after line 200 is truncated. For detailed notes, create separate topic files (e.g. debugging.md, architecture.md, patterns.md) and link to them from MEMORY.md. Read those files with the Read tool when needed.\n<project_memory>\n${projectMemory}\n</project_memory>`
     : "";
 
   const allTools: Array<{ name: string; description: string; mutating?: boolean }> = [
@@ -69,9 +78,11 @@ Rules:
     { name: "ExitPlanMode", description: "Present completed plan for user approval" },
     { name: "EnterWorktree", description: "Create an isolated git worktree for parallel/isolated work", mutating: true },
     { name: "NotebookEdit", description: "Edit Jupyter notebook cells", mutating: true },
-    { name: "Agent", description: "Spawn a subagent for complex parallel or isolated subtasks" },
-    { name: "UpdateMemory", description: "Replace the full content of MEMORY.md for this project" },
-    { name: "AppendMemory", description: "Append a note to MEMORY.md for this project" },
+    { name: "Agent", description: "Spawn a subagent for complex parallel or isolated subtasks. Supports run_in_background, model enum (sonnet/opus/haiku), and isolation='worktree'." },
+    { name: "TaskOutput", description: "Retrieve output from a running or completed background task (agent or bash). Supports block=true/false and timeout." },
+    { name: "TaskStop", description: "Stop a running background task by task_id", mutating: true },
+    { name: "UpdateMemory", description: "Replace the full content of MEMORY.md for this project (keep under 200 lines — content after line 200 is truncated)" },
+    { name: "AppendMemory", description: "Append a note to MEMORY.md for this project (keep MEMORY.md under 200 lines total — create topic files for detailed notes)" },
     { name: "AskUserQuestion", description: "Present structured question to user and wait for their response" },
     { name: "Git", description: "Execute structured git operations (status, diff, log, commit, push, pull, branch, stash, reset)", mutating: true },
   ];
@@ -152,6 +163,8 @@ When you encounter an obstacle, do not use destructive actions as a shortcut to 
  - For broader codebase exploration and deep research, use the Agent tool with subagent_type=Explore. This is slower than calling Glob or Grep directly so use this only when a simple, directed search proves to be insufficient or when your task will clearly require more than 3 queries.
  - /<skill-name> (e.g., /commit) is shorthand for users to invoke a user-invocable skill. When executed, the skill gets expanded to a full prompt. Use the Skill tool to execute them. IMPORTANT: Only use Skill for skills listed in its user-invocable skills section - do not guess or use built-in CLI commands.
  - You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. For instance, if one operation must complete before another starts, run these operations sequentially instead.
+
+CRITICAL REQUIREMENT — After ANY WebSearch tool call, you MUST include a "Sources:" section at the end of your response listing all relevant URLs as markdown hyperlinks: [Title](URL). This is MANDATORY — never skip sources after a web search.
 
 # Tone and style
  - Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.

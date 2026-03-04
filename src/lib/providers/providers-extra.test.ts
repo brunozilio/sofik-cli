@@ -569,22 +569,38 @@ describe("AnthropicProvider.stream() — max_tokens edge cases", () => {
     }));
   });
 
-  test("adds placeholder tool_results when max_tokens hit during tool_use", async () => {
-    _mockFetch = async () =>
-      new Response(
+  test("continues after max_tokens hit during tool_use, making a second LLM call", async () => {
+    let callCount = 0;
+    _mockFetch = async () => {
+      callCount++;
+      if (callCount === 1) {
+        // First turn: max_tokens hit with pending tool_use
+        return new Response(
+          makeSSEStream([
+            { type: "message_start", message: { usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+            { type: "content_block_start", content_block: { type: "tool_use", id: "tu_max", name: "BigTool" } },
+            { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{}" } },
+            { type: "content_block_stop" },
+            { type: "message_delta", delta: { stop_reason: "max_tokens" }, usage: { output_tokens: 5 } },
+          ]),
+          { status: 200 }
+        );
+      }
+      // Second turn: LLM recovers and ends normally
+      return new Response(
         makeSSEStream([
-          { type: "message_start", message: { usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
-          { type: "content_block_start", content_block: { type: "tool_use", id: "tu_max", name: "BigTool" } },
-          { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{}" } },
+          { type: "message_start", message: { usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+          { type: "content_block_start", content_block: { type: "text" } },
+          { type: "content_block_delta", delta: { type: "text_delta", text: "Continuing after truncation." } },
           { type: "content_block_stop" },
-          { type: "message_delta", delta: { stop_reason: "max_tokens" }, usage: { output_tokens: 5 } },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } },
         ]),
         { status: 200 }
       );
+    };
 
     const provider = new AnthropicProvider();
     const chunks: string[] = [];
-    // Should complete without error — placeholder tool_results are added to history
     for await (const chunk of provider.stream({
       model: "claude-opus-4-6",
       messages: [{ role: "user", content: "do something" }],
@@ -594,7 +610,9 @@ describe("AnthropicProvider.stream() — max_tokens edge cases", () => {
     })) {
       chunks.push(chunk);
     }
-    expect(chunks).toEqual([]);
+    // Should have made 2 API calls and yielded the recovery text
+    expect(callCount).toBe(2);
+    expect(chunks.join("")).toContain("Continuing after truncation.");
   });
 
   test("executes tool via executeOne when stop_reason is tool_use", async () => {

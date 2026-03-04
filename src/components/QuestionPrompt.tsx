@@ -17,6 +17,8 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
   const currentQuestion = request.questions[questionIdx]!;
   const isMulti = currentQuestion.multiSelect ?? false;
   const isLast = questionIdx === request.questions.length - 1;
+  const hasPreview = !isMulti && currentQuestion.options.some((o) => o.markdown);
+  const focusedOption = currentQuestion.options[selectedIdx];
 
   useInput((input, key) => {
     if (key.upArrow) {
@@ -59,6 +61,35 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
     }
   });
 
+  const optionsList = (
+    <Box flexDirection="column" marginTop={1}>
+      {currentQuestion.options.map((option, i) => {
+        const isSelected = isMulti ? selectedMulti.has(i) : i === selectedIdx;
+        const isFocused = i === selectedIdx;
+        return (
+          <Box key={i} flexDirection="row">
+            <Text color={isFocused ? "cyan" : "gray"}>
+              {isFocused ? "▶ " : "  "}
+            </Text>
+            {isMulti ? (
+              <Text color={isSelected ? "green" : "gray"}>
+                {isSelected ? "[✓] " : "[ ] "}
+              </Text>
+            ) : (
+              <Text color={isSelected ? "green" : "gray"}>
+                {isSelected ? "● " : "○ "}
+              </Text>
+            )}
+            <Text bold={isFocused}>{option.label}</Text>
+            {!hasPreview && option.description && (
+              <Text dimColor> — {option.description}</Text>
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+
   return (
     <Box
       flexDirection="column"
@@ -75,32 +106,31 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
         <Text bold>{currentQuestion.question}</Text>
       </Box>
 
-      <Box flexDirection="column" marginTop={1}>
-        {currentQuestion.options.map((option, i) => {
-          const isSelected = isMulti ? selectedMulti.has(i) : i === selectedIdx;
-          const isFocused = i === selectedIdx;
-          return (
-            <Box key={i} flexDirection="row">
-              <Text color={isFocused ? "cyan" : "gray"}>
-                {isFocused ? "▶ " : "  "}
-              </Text>
-              {isMulti ? (
-                <Text color={isSelected ? "green" : "gray"}>
-                  {isSelected ? "[✓] " : "[ ] "}
-                </Text>
-              ) : (
-                <Text color={isSelected ? "green" : "gray"}>
-                  {isSelected ? "● " : "○ "}
-                </Text>
-              )}
-              <Text bold={isFocused}>{option.label}</Text>
-              {option.description && (
-                <Text dimColor> — {option.description}</Text>
-              )}
-            </Box>
-          );
-        })}
-      </Box>
+      {hasPreview ? (
+        <Box flexDirection="row" marginTop={1}>
+          <Box flexDirection="column" flexShrink={0} width={28}>
+            {optionsList}
+          </Box>
+          <Box flexDirection="column" marginLeft={2} flexGrow={1}>
+            {focusedOption?.markdown ? (
+              <Box borderStyle="single" borderColor="gray" paddingX={1} flexGrow={1}>
+                <Text>{focusedOption.markdown}</Text>
+              </Box>
+            ) : (
+              <Box borderStyle="single" borderColor="gray" paddingX={1} flexGrow={1}>
+                <Text dimColor>(no preview)</Text>
+              </Box>
+            )}
+            {focusedOption?.description && (
+              <Box marginTop={1}>
+                <Text dimColor>{focusedOption.description}</Text>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      ) : (
+        optionsList
+      )}
 
       <Box marginTop={1}>
         <Text dimColor>

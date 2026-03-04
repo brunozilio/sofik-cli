@@ -11,6 +11,10 @@ import { randomBytes } from "crypto";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
+import { execSync } from "child_process";
+import { backgroundTaskRegistry, notifyTaskComplete } from "../lib/backgroundTasks.ts";
+import type { BackgroundTask } from "../lib/backgroundTasks.ts";
+import { createWorktreeForIsolation } from "./worktree.ts";
 
 // ── Agent IDs ─────────────────────────────────────────────────────────────────
 
@@ -30,21 +34,8 @@ function ensureDir(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
-// ── Agent Registry ────────────────────────────────────────────────────────────
-
-export interface AgentState {
-  agentId: string;
-  description: string;
-  status: "running" | "completed" | "failed";
-  output: string;
-  outputFile: string;
-  promise: Promise<string>;
-  startedAt: number;
-  endedAt?: number;
-  transcriptFile?: string;
-}
-
-export const agentRegistry = new Map<string, AgentState>();
+// ── Backward-compat alias ─────────────────────────────────────────────────────
+export const agentRegistry = backgroundTaskRegistry;
 
 // ── Agent Type Definitions ────────────────────────────────────────────────────
 
@@ -89,6 +80,14 @@ export const AGENT_TYPES: Record<string, AgentTypeDefinition> = {
   },
 };
 
+// ── Model map ─────────────────────────────────────────────────────────────────
+
+const MODEL_MAP: Record<string, string> = {
+  "sonnet": "claude-sonnet-4-6",
+  "opus": "claude-opus-4-6",
+  "haiku": "claude-haiku-4-5-20251001",
+};
+
 // ── Transcript save/load ──────────────────────────────────────────────────────
 
 function saveTranscript(agentId: string, messages: Message[]): void {
@@ -123,6 +122,7 @@ async function runAgent({
   model,
   maxTurns,
   resumeMessages,
+  signal,
   onChunk,
 }: {
   agentId: string;
@@ -133,6 +133,7 @@ async function runAgent({
   model: string;
   maxTurns?: number;
   resumeMessages?: Message[];
+  signal?: AbortSignal;
   onChunk?: (chunk: string) => void;
 }): Promise<string> {
   const messages: Message[] = resumeMessages
@@ -150,6 +151,7 @@ async function runAgent({
       tools,
       systemOverride: systemPrompt,
       maxTurns,
+      signal,
       onToolUse: async () => {},
       onToolResult: () => {},
     })) {
@@ -190,6 +192,24 @@ export async function runSimpleAgent(opts: {
   });
 }
 
+// ── Worktree cleanup helper ───────────────────────────────────────────────────
+
+function cleanupWorktreeIfEmpty(worktreeInfo: { path: string; branch: string }): string {
+  try {
+    const gitStatus = execSync(`git -C "${worktreeInfo.path}" status --porcelain`, { encoding: "utf-8" }).trim();
+    if (!gitStatus) {
+      try {
+        execSync(`git worktree remove "${worktreeInfo.path}"`, { cwd: process.cwd(), encoding: "utf-8", stdio: "ignore" });
+        execSync(`git branch -d "${worktreeInfo.branch}"`, { cwd: process.cwd(), encoding: "utf-8", stdio: "ignore" });
+      } catch { /* ignore cleanup errors */ }
+      return "";
+    }
+    return `\n\nWorktree: ${worktreeInfo.path}\nBranch: ${worktreeInfo.branch}`;
+  } catch {
+    return `\n\nWorktree: ${worktreeInfo.path}\nBranch: ${worktreeInfo.branch}`;
+  }
+}
+
 // ── Tool definition ───────────────────────────────────────────────────────────
 
 export const agentTool: ToolDefinition = {
@@ -215,8 +235,9 @@ When NOT to use the Agent tool:
 Usage notes:
 - Always include a short description (3-5 words) summarizing what the agent will do
 - Launch multiple agents concurrently whenever possible by making multiple tool calls in one message
-- You can optionally run agents in the background using the run_in_background parameter. When an agent runs in the background, you will be automatically notified when it completes.
-- Agents can be resumed using the \`resume\` parameter by passing the agent ID from a previous invocation.`,
+- You can optionally run agents in the background using the run_in_background parameter. When an agent runs in the background, you will be automatically notified when it completes — do NOT sleep, poll, or proactively check on its progress.
+- Agents can be resumed using the \`resume\` parameter by passing the agent ID from a previous invocation. When resumed, the agent continues with its full previous context preserved.
+- You can optionally set \`isolation: "worktree"\` to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.`,
   input_schema: {
     type: "object",
     properties: {
@@ -232,13 +253,18 @@ Usage notes:
         type: "string",
         description: "The type of specialized agent to use: 'general-purpose' (default), 'Explore', 'Plan', 'statusline-setup', or 'claude-code-guide'",
       },
+      model: {
+        type: "string",
+        enum: ["sonnet", "opus", "haiku"],
+        description: "Optional model for this agent. If not specified, inherits from parent. Prefer haiku for quick, lightweight tasks to minimize cost and latency.",
+      },
       inherit_context: {
         type: "boolean",
         description: "When true, inject parent session context (project memory, active tasks) into the agent's system prompt",
       },
       run_in_background: {
         type: "boolean",
-        description: "When true, spawn the agent in the background and return immediately with an agent ID. Use TaskOutput to retrieve results later.",
+        description: "When true, spawn the agent in the background and return immediately with an agent ID. Use TaskOutput to retrieve results later. You will be automatically notified when it completes.",
       },
       resume: {
         type: "string",
@@ -247,6 +273,11 @@ Usage notes:
       max_turns: {
         type: "number",
         description: "Maximum number of agentic turns before stopping. Unlimited if omitted.",
+      },
+      isolation: {
+        type: "string",
+        enum: ["worktree"],
+        description: "Set to 'worktree' to run the agent in a temporary isolated git worktree. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.",
       },
     },
     required: ["description", "prompt"],
@@ -259,6 +290,8 @@ Usage notes:
     const resumeId = input["resume"] as string | undefined;
     const maxTurns = input["max_turns"] as number | undefined;
     const subagentType = (input["subagent_type"] as string | undefined) ?? "general-purpose";
+    const modelParam = input["model"] as string | undefined;
+    const isolationMode = input["isolation"] as string | undefined;
 
     // Resolve agent type config
     const agentTypeDef = AGENT_TYPES[subagentType] ?? AGENT_TYPES["general-purpose"];
@@ -270,8 +303,9 @@ Usage notes:
         ? allTools
         : allTools.filter((t) => (agentTypeDef.tools as string[]).includes(t.name));
 
-    // Resolve model
-    const model = agentTypeDef.model ?? getCurrentModel();
+    // Resolve model: explicit param > agent type default > current model
+    const modelOverride = modelParam ? MODEL_MAP[modelParam] : undefined;
+    const model = modelOverride ?? agentTypeDef.model ?? getCurrentModel();
 
     // Build system prompt
     let systemPrompt = buildSystemPrompt();
@@ -308,8 +342,17 @@ Usage notes:
     const outputFile = getOutputPath(agentId);
     ensureDir(outputFile);
 
+    // Set up worktree isolation if requested
+    let worktreeInfo: { path: string; branch: string } | null = null;
+    if (isolationMode === "worktree") {
+      worktreeInfo = await createWorktreeForIsolation(`agent-${agentId}`);
+      if (worktreeInfo) {
+        systemPrompt += `\n\n<worktree_context>Working in isolated worktree: ${worktreeInfo.path}\nBranch: ${worktreeInfo.branch}</worktree_context>`;
+      }
+    }
+
     if (runInBackground) {
-      // Spawn and return immediately
+      const controller = new AbortController();
       let accumulatedOutput = "";
 
       const promise = runAgent({
@@ -321,43 +364,51 @@ Usage notes:
         model,
         maxTurns,
         resumeMessages,
+        signal: controller.signal,
         onChunk: (chunk) => {
           accumulatedOutput += chunk;
+          const task = backgroundTaskRegistry.get(agentId);
+          if (task) task.partialOutput = accumulatedOutput;
           try {
             fs.appendFileSync(outputFile, chunk, "utf8");
           } catch { /* ignore write errors */ }
         },
       }).then((result) => {
         accumulatedOutput = result;
-        const state = agentRegistry.get(agentId);
-        if (state) {
-          state.status = "completed";
-          state.output = result;
-          state.endedAt = Date.now();
-          state.transcriptFile = getTranscriptPath(agentId);
+        const task = backgroundTaskRegistry.get(agentId);
+        if (task) {
+          task.status = "completed";
+          task.partialOutput = result;
+          task.endedAt = Date.now();
+          task.transcriptFile = getTranscriptPath(agentId);
         }
+        if (worktreeInfo) cleanupWorktreeIfEmpty(worktreeInfo);
+        notifyTaskComplete(agentId);
         return result;
       }).catch((err) => {
-        const state = agentRegistry.get(agentId);
-        if (state) {
-          state.status = "failed";
-          state.output = `Error: ${err instanceof Error ? err.message : String(err)}`;
-          state.endedAt = Date.now();
+        const task = backgroundTaskRegistry.get(agentId);
+        if (task) {
+          if (task.status !== "stopped") task.status = "failed";
+          task.endedAt = Date.now();
         }
+        if (worktreeInfo) cleanupWorktreeIfEmpty(worktreeInfo);
+        notifyTaskComplete(agentId);
         throw err;
       });
 
-      const state: AgentState = {
-        agentId,
+      const bgTask: BackgroundTask = {
+        taskId: agentId,
+        type: "agent",
         description,
         status: "running",
-        output: "",
+        partialOutput: "",
         outputFile,
         promise: promise.catch(() => accumulatedOutput),
+        controller,
         startedAt: Date.now(),
         transcriptFile: getTranscriptPath(agentId),
       };
-      agentRegistry.set(agentId, state);
+      backgroundTaskRegistry.set(agentId, bgTask);
 
       return JSON.stringify({
         agentId,
@@ -368,7 +419,23 @@ Usage notes:
     }
 
     // Foreground: run synchronously
+    const controller = new AbortController();
     let accumulatedOutput = "";
+
+    const bgTask: BackgroundTask = {
+      taskId: agentId,
+      type: "agent",
+      description,
+      status: "running",
+      partialOutput: "",
+      outputFile,
+      promise: Promise.resolve(""),
+      controller,
+      startedAt: Date.now(),
+      transcriptFile: getTranscriptPath(agentId),
+    };
+    backgroundTaskRegistry.set(agentId, bgTask);
+
     const promise = runAgent({
       agentId,
       description,
@@ -378,36 +445,29 @@ Usage notes:
       model,
       maxTurns,
       resumeMessages,
+      signal: controller.signal,
       onChunk: (chunk) => {
         accumulatedOutput += chunk;
+        bgTask.partialOutput = accumulatedOutput;
         try { fs.appendFileSync(outputFile, chunk, "utf8"); } catch { /* ignore */ }
       },
     });
-
-    const state: AgentState = {
-      agentId,
-      description,
-      status: "running",
-      output: "",
-      outputFile,
-      promise: promise.catch(() => accumulatedOutput),
-      startedAt: Date.now(),
-      transcriptFile: getTranscriptPath(agentId),
-    };
-    agentRegistry.set(agentId, state);
+    bgTask.promise = promise.catch(() => accumulatedOutput);
 
     let output: string;
     try {
       output = await promise;
-      state.status = "completed";
-      state.output = output;
-      state.endedAt = Date.now();
+      bgTask.status = "completed";
+      bgTask.partialOutput = output;
+      bgTask.endedAt = Date.now();
     } catch (err) {
-      state.status = "failed";
-      state.endedAt = Date.now();
+      bgTask.status = bgTask.status === "stopped" ? "stopped" : "failed";
+      bgTask.endedAt = Date.now();
       throw err;
     }
 
-    return `${output}\n\nagentId: ${agentId}`;
+    const worktreeSuffix = worktreeInfo ? cleanupWorktreeIfEmpty(worktreeInfo) : "";
+
+    return `${output}\n\nagentId: ${agentId}${worktreeSuffix}`;
   },
 };
