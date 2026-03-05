@@ -31,8 +31,7 @@ function formatToolArgs(name: string, input: unknown): string {
   const key = primaryKeys[name];
   if (key && obj[key] != null) {
     const val = String(obj[key]);
-    const truncated = val.length > 55 ? val.slice(0, 52) + "…" : val;
-    return `("${truncated}")`;
+    return `("${val}")`;
   }
 
   const keys = Object.keys(obj).slice(0, 1);
@@ -40,15 +39,11 @@ function formatToolArgs(name: string, input: unknown): string {
   const k = keys[0]!;
   const raw = obj[k];
   const v = raw !== null && typeof raw === "object" ? JSON.stringify(raw) : String(raw);
-  const trunc = v.length > 50 ? v.slice(0, 47) + "…" : v;
-  return `(${trunc})`;
+  return `(${v})`;
 }
 
 function resultSummary(result: string): string {
-  const lines = result.split("\n");
-  if (lines.length > 5) return `${lines.length} lines`;
-  const preview = result.slice(0, 80).replace(/\n/g, " ↩ ");
-  return preview + (result.length > 80 ? "…" : "");
+  return result.replace(/\n/g, " ↩ ");
 }
 
 // ── Tool category colors ────────────────────────────────────────────────────
@@ -154,6 +149,7 @@ function ToolResultBlock({
     const diffLines = diffContent.split("\n");
     const added = diffLines.filter((l) => l.startsWith("+")).length;
     const removed = diffLines.filter((l) => l.startsWith("-")).length;
+    
     return (
       <Box flexDirection="column" marginLeft={2} marginBottom={1}>
         <Text dimColor>
@@ -168,7 +164,7 @@ function ToolResultBlock({
           ) : null}
         </Text>
         <Box flexDirection="column" marginLeft={2}>
-          {diffLines.slice(0, 10).map((line, i) => (
+          {diffLines.map((line, i) => (
             <Text
               key={i}
               color={line.startsWith("+") ? "green" : line.startsWith("-") ? "red" : undefined}
@@ -177,19 +173,15 @@ function ToolResultBlock({
               {line}
             </Text>
           ))}
-          {diffLines.length > 10 && (
-            <Text dimColor>  … +{diffLines.length - 10} lines</Text>
-          )}
         </Box>
       </Box>
     );
   }
 
   if (is_error) {
-    const preview = result.slice(0, 120).replace(/\n/g, " ");
     return (
       <Box marginLeft={2} marginBottom={1}>
-        <Text color="red">⎿ Error: {preview}{result.length > 120 ? "…" : ""}</Text>
+        <Text color="red">⎿ Error: {result.replace(/\n/g, " ")}</Text>
       </Box>
     );
   }

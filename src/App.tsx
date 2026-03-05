@@ -394,7 +394,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
         session.current.messages = resultMessages;
         saveSession(session.current);
         setTurnEvents([]);
-        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length, durationMs, response: fullText.slice(0, 3000) });
+        logger.app.info("runAI concluído", { totalMessages: resultMessages.length, responseLength: fullText.length, durationMs, response: fullText });
       } catch (err) {
         const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"));
         if (!isAbort) {
@@ -612,7 +612,7 @@ export function App({ initialSession, modelOverride, initialMode }: AppProps) {
       // Expand @mentions
       const expandedInput = await expandMentions(userInput);
 
-      logger.app.info("Mensagem do usuário recebida", { length: expandedInput.length, messageCount: messages.length, content: expandedInput.slice(0, 2000) });
+      logger.app.info("Mensagem do usuário recebida", { length: expandedInput.length, messageCount: messages.length, content: expandedInput });
 
       // Detect thinking keywords
       const budget = detectThinkingBudget(expandedInput);
