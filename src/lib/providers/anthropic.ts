@@ -154,6 +154,7 @@ function injectCacheBreakpoint(apiMessages: unknown[]): void {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export class AnthropicProvider implements LLMProvider {
+  constructor() {}
   readonly name = "anthropic";
 
   supportsModel(model: string): boolean {

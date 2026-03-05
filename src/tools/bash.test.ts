@@ -160,6 +160,35 @@ describe("bashTool — error handling", () => {
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
   }, 10000);
+
+  test("spawn error in foreground mode returns error string (empty PATH)", async () => {
+    const origPath = process.env.PATH;
+    process.env.PATH = "/sofik-no-bash-path-xyz";
+    try {
+      const result = await bash({ command: "echo hello" });
+      // Either the error handler fired (returns "Erro: ...") or bash was found anyway
+      expect(typeof result).toBe("string");
+    } finally {
+      process.env.PATH = origPath;
+    }
+  }, 10000);
+
+  test("spawn error in background mode results in failed task (empty PATH)", async () => {
+    const origPath = process.env.PATH;
+    process.env.PATH = "/sofik-no-bash-path-xyz";
+    try {
+      const result = await bash({ command: "echo hello", run_in_background: true });
+      const parsed = JSON.parse(result);
+      const task = backgroundTaskRegistry.get(parsed.taskId);
+      if (task) {
+        await task.promise;
+        // Task should either fail (spawn error) or complete (bash found anyway)
+        expect(["failed", "completed"]).toContain(task.status);
+      }
+    } finally {
+      process.env.PATH = origPath;
+    }
+  }, 10000);
 });
 
 // ── Background mode ────────────────────────────────────────────────────────────

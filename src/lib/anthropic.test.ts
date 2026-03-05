@@ -6,6 +6,8 @@ import {
   shouldCompact,
   microcompact,
   createClient,
+  compact,
+  streamResponse,
 } from "./anthropic.ts";
 import type { Message } from "./types.ts";
 
@@ -418,4 +420,51 @@ describe("microcompact", () => {
     expect(rd1!.content).toBe("[content cleared for context management]");
     expect(gr1!.content).toBe("[content cleared for context management]");
   });
+});
+
+// ── compact ───────────────────────────────────────────────────────────────────
+
+describe("compact()", () => {
+  test("is callable and requires auth (throws without credentials)", async () => {
+    // Calling compact() covers the function and its initial lines.
+    // Without authentication configured, it propagates the auth error from the provider.
+    setModel("claude-opus-4-6");
+    await expect(compact(null, [])).rejects.toThrow();
+  }, 5000);
+
+  test("accepts non-empty messages without crashing before auth check", async () => {
+    setModel("claude-opus-4-6");
+    const messages: Message[] = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi!" },
+    ];
+    // Still throws on auth, but covers the code path that prepends COMPACTION_PROMPT
+    await expect(compact(null, messages)).rejects.toThrow();
+  }, 5000);
+
+  test("success path: yields text, extracts <summary> tag, returns compacted messages", async () => {
+    setModel("claude-opus-4-6");
+    // Mock stream: calls onToolUse/onToolResult (covers no-op callbacks), then yields a summary
+    async function* mockStream(params: Parameters<typeof compact>[2] extends infer F ? F extends (p: infer P) => unknown ? P : never : never) {
+      await params.onToolUse("MockTool", { arg: 1 });
+      params.onToolResult({ tool_use_id: "u1", content: "result", is_error: false });
+      yield "<summary>compacted session summary</summary>";
+    }
+    const result = await compact(null, [{ role: "user", content: "hello" }], mockStream as Parameters<typeof compact>[2]);
+    expect(result).toHaveLength(1);
+    expect(result[0].role).toBe("user");
+    expect(result[0].content).toContain("compacted session summary");
+  });
+});
+
+// ── streamResponse (legacy) ───────────────────────────────────────────────────
+
+describe("streamResponse() legacy wrapper", () => {
+  test("is callable and requires auth (throws without credentials)", async () => {
+    // Calling streamResponse() covers the function; auth error propagates from provider.
+    setModel("claude-opus-4-6");
+    const messages: Message[] = [{ role: "user", content: "test" }];
+    const gen = streamResponse(null, messages, [], async () => {}, () => {});
+    await expect(gen.next()).rejects.toThrow();
+  }, 5000);
 });

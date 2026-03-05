@@ -44,6 +44,11 @@ describe("AtlassianConnector", () => {
 
   // --- definition -----------------------------------------------------------
 
+  test("constructor creates a valid instance", () => {
+    const c = new AtlassianConnector();
+    expect(c.definition.provider).toBe("atlassian");
+  });
+
   test("definition: provider is atlassian", () => {
     expect(connector.definition.provider).toBe("atlassian");
   });
@@ -288,6 +293,11 @@ describe("CloudflareConnector", () => {
 
   // --- definition -----------------------------------------------------------
 
+  test("constructor creates a valid instance", () => {
+    const c = new CloudflareConnector();
+    expect(c.definition.provider).toBe("cloudflare");
+  });
+
   test("definition: provider is cloudflare", () => {
     expect(connector.definition.provider).toBe("cloudflare");
   });
@@ -528,6 +538,11 @@ describe("Context7Connector", () => {
 
   // --- definition -----------------------------------------------------------
 
+  test("constructor creates a valid instance", () => {
+    const c = new Context7Connector();
+    expect(c.definition.provider).toBe("context7");
+  });
+
   test("definition: provider is context7", () => {
     expect(connector.definition.provider).toBe("context7");
   });
@@ -620,6 +635,11 @@ describe("FigmaConnector", () => {
   const creds = { apiKey: "figma-personal-token-123" };
 
   // --- definition -----------------------------------------------------------
+
+  test("constructor creates a valid instance", () => {
+    const c = new FigmaConnector();
+    expect(c.definition.provider).toBe("figma");
+  });
 
   test("definition: provider is figma", () => {
     expect(connector.definition.provider).toBe("figma");
@@ -768,6 +788,11 @@ describe("NotionConnector", () => {
   const creds = { apiKey: "secret_notion_token_abc" };
 
   // --- definition -----------------------------------------------------------
+
+  test("constructor creates a valid instance", () => {
+    const c = new NotionConnector();
+    expect(c.definition.provider).toBe("notion");
+  });
 
   test("definition: provider is notion", () => {
     expect(connector.definition.provider).toBe("notion");
@@ -938,6 +963,11 @@ describe("PlaywrightConnector", () => {
   const creds = { apiKey: "" };
 
   // --- definition -----------------------------------------------------------
+
+  test("constructor creates a valid instance", () => {
+    const c = new PlaywrightConnector();
+    expect(c.definition.provider).toBe("playwright");
+  });
 
   test("definition: provider is playwright", () => {
     expect(connector.definition.provider).toBe("playwright");
@@ -1117,6 +1147,11 @@ describe("SupabaseConnector", () => {
   };
 
   // --- definition -----------------------------------------------------------
+
+  test("constructor creates a valid instance", () => {
+    const c = new SupabaseConnector();
+    expect(c.definition.provider).toBe("supabase");
+  });
 
   test("definition: provider is supabase", () => {
     expect(connector.definition.provider).toBe("supabase");
@@ -1318,6 +1353,11 @@ describe("VercelConnector", () => {
   const creds = { apiKey: "vercel-token-abc123" };
 
   // --- definition -----------------------------------------------------------
+
+  test("constructor creates a valid instance", () => {
+    const c = new VercelConnector();
+    expect(c.definition.provider).toBe("vercel");
+  });
 
   test("definition: provider is vercel", () => {
     expect(connector.definition.provider).toBe("vercel");

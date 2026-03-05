@@ -11,11 +11,21 @@ import { request as httpRequest } from "node:http";
 // ── Prevent openBrowser from opening a real browser during tests ──────────────
 // (spawn is called with detached:true so it won't block, but on macOS `open`
 //  would actually launch Safari — mock it away cleanly.)
+// simulateSpawnError allows specific tests to trigger the child "error" event.
+let simulateSpawnError = false;
 mock.module("child_process", () => ({
-  spawn: (_cmd: string, _args: string[], _opts?: object) => ({
-    on: (_ev: string, _fn: () => void) => {},
-    unref: () => {},
-  }),
+  spawn: (_cmd: string, _args: string[], _opts?: object) => {
+    const handlers: Record<string, (err: Error) => void> = {};
+    const child = {
+      on: (ev: string, fn: (err: Error) => void) => { handlers[ev] = fn; },
+      unref: () => {
+        if (simulateSpawnError && handlers["error"]) {
+          handlers["error"](new Error("spawn error simulated"));
+        }
+      },
+    };
+    return child;
+  },
   execSync: () => Buffer.from(""),
 }));
 import fs from "node:fs";
@@ -633,6 +643,49 @@ describe("login", () => {
     await expect(loginPromise).rejects.toThrow(/500/);
   });
 
+  test("token exchange error when body unreadable falls back to statusText", async () => {
+    const port = allocatePort();
+    process.env.SSH_CLIENT = "1.2.3.4 1234 1.2.3.4";
+    const _origFetch2 = globalThis.fetch;
+    // @ts-ignore — return a Response-like where text() rejects to trigger the catch fallback
+    globalThis.fetch = async (url: string | URL | Request) => {
+      const u = url instanceof Request ? url.url : String(url);
+      if (u.includes("platform.claude.com")) {
+        return {
+          ok: false,
+          status: 503,
+          statusText: "Service Unavailable",
+          text: async () => { throw new Error("stream closed"); },
+        } as unknown as Response;
+      }
+      return _origFetch2(url as string);
+    };
+
+    const loginPromise = login(() => {}, port);
+    void loginPromise.catch(() => {});
+    await waitForServer();
+    await hitCallback(port, "/callback?code=fallback-code");
+
+    await expect(loginPromise).rejects.toThrow(/Token exchange failed/);
+    globalThis.fetch = _origFetch2;
+  });
+
+  test("openBrowser spawn error is silently ignored (covers error callback)", async () => {
+    const port = allocatePort();
+    // Do NOT set SSH_CLIENT so openBrowser() is called
+    mockTokenExchange("sk-ant-spawn-err");
+    simulateSpawnError = true;
+    try {
+      const loginPromise = login(() => {}, port);
+      await waitForServer();
+      await hitCallback(port, "/callback?code=spawn-err-code");
+      const token = await loginPromise;
+      expect(token.access_token).toBe("sk-ant-spawn-err");
+    } finally {
+      simulateSpawnError = false;
+    }
+  }, 10000);
+
   test("isSSH() returns true when SSH_CLIENT is set", async () => {
     const port = allocatePort();
     process.env.SSH_CLIENT = "10.0.0.1 22 10.0.0.2";
@@ -661,6 +714,7 @@ describe("login", () => {
       await new Promise<void>((r) => blockingServer.close(() => r()));
     }
   });
+
 });
 
 // ── loginCopilot — polling flow ───────────────────────────────────────────────

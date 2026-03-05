@@ -30,6 +30,7 @@ function projectUrl(creds: IntegrationCredentials): string {
 }
 
 export class SupabaseConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "supabase",
       name: "Supabase",

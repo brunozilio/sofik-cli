@@ -118,6 +118,11 @@ describe("AnthropicProvider", () => {
     _mockFetch = async () => makeOkResponse(makeSSEStream([]));
   });
 
+  test("constructor creates a valid instance", () => {
+    const p = new AnthropicProvider();
+    expect(typeof p.supportsModel).toBe("function");
+  });
+
   // ── supportsModel ────────────────────────────────────────────────────────────
 
   describe("supportsModel()", () => {
@@ -687,6 +692,11 @@ describe("CopilotProvider", () => {
     // Reset cached token between tests by forcing it to expire
     // (the module-level cachedToken will be refreshed on each first call)
     _mockFetch = async () => makeOkResponse(makeSSEStream([]));
+  });
+
+  test("constructor creates a valid instance", () => {
+    const p = new CopilotProvider();
+    expect(typeof p.supportsModel).toBe("function");
   });
 
   // ── supportsModel ────────────────────────────────────────────────────────────

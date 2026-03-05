@@ -53,6 +53,13 @@ describe("BaseConnector", () => {
   const connector = new TestConnector();
   const creds: IntegrationCredentials = { apiKey: "test-key-123" };
 
+  // ── constructor ───────────────────────────────────────────────────────────
+
+  test("constructor creates a valid instance", () => {
+    const c = new TestConnector();
+    expect(c.definition.provider).toBe("test");
+  });
+
   // ── definition shape ──────────────────────────────────────────────────────
 
   describe("definition", () => {

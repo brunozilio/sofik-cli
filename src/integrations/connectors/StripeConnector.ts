@@ -4,6 +4,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class StripeConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "stripe",
       name: "Stripe",

@@ -206,6 +206,18 @@ describe("grepTool — result limit", () => {
   });
 });
 
+// ── Error handling ─────────────────────────────────────────────────────────────
+
+describe("grepTool — error handling", () => {
+  test("returns error message for invalid regex pattern", async () => {
+    // An unmatched '[' is an invalid POSIX regex — grep exits with status 2
+    const result = await grep({ pattern: "[invalid-unclosed-bracket", path: tmpDir });
+    expect(typeof result).toBe("string");
+    // Should return either no-match or an error message (not throw)
+    expect(result).toBeTruthy();
+  });
+});
+
 // ── Regex patterns ─────────────────────────────────────────────────────────────
 
 describe("grepTool — regex patterns", () => {

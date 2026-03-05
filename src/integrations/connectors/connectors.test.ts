@@ -61,6 +61,11 @@ describe("GitHubConnector", () => {
 
   // ── definition ────────────────────────────────────────────────────────────
 
+  test("constructor creates a valid instance", () => {
+    const c = new GitHubConnector();
+    expect(c.definition.provider).toBe("github");
+  });
+
   test("definition.provider === 'github'", () => {
     expect(def.provider).toBe("github");
   });
@@ -407,6 +412,11 @@ describe("StripeConnector", () => {
   const connector = new StripeConnector();
   const def = connector.definition;
 
+  test("constructor creates a valid instance", () => {
+    const c = new StripeConnector();
+    expect(c.definition.provider).toBe("stripe");
+  });
+
   test("definition.provider === 'stripe'", () => {
     expect(def.provider).toBe("stripe");
   });
@@ -613,6 +623,11 @@ describe("SentryConnector", () => {
   const connector = new SentryConnector();
   const def = connector.definition;
 
+  test("constructor creates a valid instance", () => {
+    const c = new SentryConnector();
+    expect(c.definition.provider).toBe("sentry");
+  });
+
   test("definition.provider === 'sentry'", () => {
     expect(def.provider).toBe("sentry");
   });
@@ -783,6 +798,11 @@ describe("SentryConnector", () => {
 describe("LinearConnector", () => {
   const connector = new LinearConnector();
   const def = connector.definition;
+
+  test("constructor creates a valid instance", () => {
+    const c = new LinearConnector();
+    expect(c.definition.provider).toBe("linear");
+  });
 
   test("definition.provider === 'linear'", () => {
     expect(def.provider).toBe("linear");
@@ -976,6 +996,11 @@ describe("LinearConnector", () => {
 describe("SlackConnector", () => {
   const connector = new SlackConnector();
   const def = connector.definition;
+
+  test("constructor creates a valid instance", () => {
+    const c = new SlackConnector();
+    expect(c.definition.provider).toBe("slack");
+  });
 
   test("definition.provider === 'slack'", () => {
     expect(def.provider).toBe("slack");

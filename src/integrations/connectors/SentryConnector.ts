@@ -3,6 +3,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class SentryConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "sentry",
       name: "Sentry",

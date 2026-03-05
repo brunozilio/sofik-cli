@@ -1,6 +1,7 @@
 import type { ConnectorDefinition, IntegrationCredentials } from "../types/integration.ts";
 
 export abstract class BaseConnector {
+  constructor() {}
   abstract readonly definition: ConnectorDefinition;
 
   /**

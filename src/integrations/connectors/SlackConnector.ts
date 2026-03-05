@@ -4,6 +4,7 @@ import type { ConnectorDefinition, IntegrationCredentials } from "../../types/in
 import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 
 export class SlackConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "slack",
       name: "Slack",

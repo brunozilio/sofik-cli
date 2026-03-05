@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { ToolDefinition } from "../lib/types.ts";
 import { logger } from "../lib/logger.ts";
+import { setPermissionMode } from "../lib/permissions.ts";
 
 // ─── Plan mode state ───────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ export const enterPlanModeTool: ToolDefinition = {
     required: [],
   },
   async execute(_input) {
+    setPermissionMode("plan");
     logger.app.info("EnterPlanMode ativado");
     return `Modo de planejamento ativado. Você está agora em modo SOMENTE LEITURA.
 
@@ -139,6 +141,7 @@ export const exitPlanModeTool: ToolDefinition = {
         return "Plano rejeitado pelo usuário. Por favor, revise sua abordagem e tente novamente.";
       }
       logger.app.info("ExitPlanMode aprovado pelo usuário");
+      setPermissionMode("ask");
       return (
         "Plano aprovado! Você pode prosseguir com a implementação. " +
         "Ferramentas de mutação (Bash, Write, Edit) estão disponíveis."

@@ -2,7 +2,6 @@ import type { ToolDefinition } from "../lib/types.ts";
 import type { Message } from "../lib/types.ts";
 import { buildSystemPrompt } from "../lib/systemPrompt.ts";
 import { loadProjectMemory } from "../lib/session.ts";
-import { getAllTools } from "./index.ts";
 import { getActiveTasks } from "./task.ts";
 import { getCurrentModel } from "../lib/anthropic.ts";
 import { streamResponse } from "../lib/providers/index.ts";
@@ -15,6 +14,9 @@ import { execSync } from "child_process";
 import { backgroundTaskRegistry, notifyTaskComplete } from "../lib/backgroundTasks.ts";
 import type { BackgroundTask } from "../lib/backgroundTasks.ts";
 import { createWorktreeForIsolation } from "./worktree.ts";
+
+// Test seam: allows injecting a mock streamResponse in tests (never use in production)
+export const _agentTestSeams: { streamFn?: typeof streamResponse } = {};
 
 // ── Agent IDs ─────────────────────────────────────────────────────────────────
 
@@ -145,7 +147,8 @@ async function runAgent({
 
   let output = "";
   try {
-    for await (const chunk of streamResponse({
+    const _streamFn = _agentTestSeams.streamFn ?? streamResponse;
+    for await (const chunk of _streamFn({
       model,
       messages,
       tools,
@@ -177,6 +180,7 @@ export async function runSimpleAgent(opts: {
   toolNames: string[];
 }): Promise<string> {
   const agentId = generateAgentId();
+  const { getAllTools } = await import("./index.ts");
   const allTools = getAllTools().filter((t) => t.name !== "Agent");
   const tools = opts.toolNames.length === 0
     ? allTools
@@ -297,6 +301,7 @@ Usage notes:
     const agentTypeDef = AGENT_TYPES[subagentType] ?? AGENT_TYPES["general-purpose"];
 
     // Build tool list for this agent type
+    const { getAllTools } = await import("./index.ts");
     const allTools = getAllTools().filter((t) => t.name !== "Agent");
     const tools =
       agentTypeDef.tools === "all"

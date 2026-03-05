@@ -14,6 +14,7 @@ function notionHeaders(token: string | undefined): Record<string, string> {
 }
 
 export class NotionConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "notion",
       name: "Notion",

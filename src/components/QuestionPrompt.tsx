@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import type { Question, AskUserRequest } from "../tools/askUser.ts";
+import type { AskUserRequest } from "../tools/askUser.ts";
 
 interface QuestionPromptProps {
   request: AskUserRequest;
@@ -13,20 +13,41 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [selectedMulti, setSelectedMulti] = useState<Set<number>>(new Set());
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [otherText, setOtherText] = useState("");
+  const [typingOther, setTypingOther] = useState(false);
 
   const currentQuestion = request.questions[questionIdx]!;
   const isMulti = currentQuestion.multiSelect ?? false;
-  const isLast = questionIdx === request.questions.length - 1;
   const hasPreview = !isMulti && currentQuestion.options.some((o) => o.markdown);
   const focusedOption = currentQuestion.options[selectedIdx];
+  const isLast = questionIdx === request.questions.length - 1;
+
+  // Real options + virtual "Other" appended
+  const totalOptions = currentQuestion.options.length + 1;
+  const otherIdx = currentQuestion.options.length;
+  const isOtherFocused = selectedIdx === otherIdx;
 
   useInput((input, key) => {
+    if (typingOther) {
+      if (key.return) {
+        if (!otherText.trim()) return;
+        submitAnswer(otherText.trim());
+      } else if (key.escape) {
+        setTypingOther(false);
+        setOtherText("");
+      } else if (key.backspace || key.delete) {
+        setOtherText((t) => t.slice(0, -1));
+      } else if (input && !key.ctrl && !key.meta) {
+        setOtherText((t) => t + input);
+      }
+      return;
+    }
+
     if (key.upArrow) {
       setSelectedIdx((i) => Math.max(0, i - 1));
     } else if (key.downArrow) {
-      setSelectedIdx((i) => Math.min(currentQuestion.options.length - 1, i + 1));
-    } else if (input === " " && isMulti) {
-      // Toggle selection for multi-select
+      setSelectedIdx((i) => Math.min(totalOptions - 1, i + 1));
+    } else if (input === " " && isMulti && !isOtherFocused) {
       setSelectedMulti((prev) => {
         const next = new Set(prev);
         if (next.has(selectedIdx)) next.delete(selectedIdx);
@@ -34,38 +55,44 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
         return next;
       });
     } else if (key.return) {
-      // Record answer
-      let answer: string;
+      if (isOtherFocused) {
+        setTypingOther(true);
+        return;
+      }
       if (isMulti) {
-        if (selectedMulti.size === 0) return; // require at least one selection
-        answer = [...selectedMulti]
+        if (selectedMulti.size === 0) return;
+        const answer = [...selectedMulti]
           .sort()
           .map((i) => currentQuestion.options[i]!.label)
           .join(", ");
+        submitAnswer(answer);
       } else {
-        answer = currentQuestion.options[selectedIdx]!.label;
-      }
-
-      const newAnswers = { ...answers, [currentQuestion.question]: answer };
-      setAnswers(newAnswers);
-
-      if (isLast) {
-        onComplete(newAnswers);
-      } else {
-        setQuestionIdx((i) => i + 1);
-        setSelectedIdx(0);
-        setSelectedMulti(new Set());
+        submitAnswer(currentQuestion.options[selectedIdx]!.label);
       }
     } else if (key.escape) {
       onCancel();
     }
   });
 
+  function submitAnswer(answer: string) {
+    const newAnswers = { ...answers, [currentQuestion.question]: answer };
+    setAnswers(newAnswers);
+    if (isLast) {
+      onComplete(newAnswers);
+    } else {
+      setQuestionIdx((i) => i + 1);
+      setSelectedIdx(0);
+      setSelectedMulti(new Set());
+      setTypingOther(false);
+      setOtherText("");
+    }
+  }
+
   const optionsList = (
     <Box flexDirection="column" marginTop={1}>
       {currentQuestion.options.map((option, i) => {
         const isSelected = isMulti ? selectedMulti.has(i) : i === selectedIdx;
-        const isFocused = i === selectedIdx;
+        const isFocused = i === selectedIdx && !typingOther;
         return (
           <Box key={i} flexDirection="row">
             <Text color={isFocused ? "cyan" : "gray"}>
@@ -87,6 +114,29 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
           </Box>
         );
       })}
+
+      {/* Other option — inline input when typing */}
+      <Box flexDirection="row">
+        <Text color={isOtherFocused && !typingOther ? "cyan" : "gray"}>
+          {isOtherFocused && !typingOther ? "▶ " : "  "}
+        </Text>
+        {isMulti ? (
+          <Text color="gray">{"[ ] "}</Text>
+        ) : (
+          <Text color={isOtherFocused ? "green" : "gray"}>
+            {isOtherFocused ? "● " : "○ "}
+          </Text>
+        )}
+        {typingOther ? (
+          <Box flexDirection="row">
+            <Text dimColor>Other: </Text>
+            <Text>{otherText}</Text>
+            <Text color="cyan">█</Text>
+          </Box>
+        ) : (
+          <Text dimColor={!isOtherFocused} bold={isOtherFocused && !typingOther}>Other…</Text>
+        )}
+      </Box>
     </Box>
   );
 
@@ -112,16 +162,16 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
             {optionsList}
           </Box>
           <Box flexDirection="column" marginLeft={2} flexGrow={1}>
-            {focusedOption?.markdown ? (
+            {!typingOther && focusedOption?.markdown ? (
               <Box borderStyle="single" borderColor="gray" paddingX={1} flexGrow={1}>
                 <Text>{focusedOption.markdown}</Text>
               </Box>
             ) : (
               <Box borderStyle="single" borderColor="gray" paddingX={1} flexGrow={1}>
-                <Text dimColor>(no preview)</Text>
+                <Text dimColor>{typingOther ? "Digite e pressione Enter" : "(no preview)"}</Text>
               </Box>
             )}
-            {focusedOption?.description && (
+            {!typingOther && focusedOption?.description && (
               <Box marginTop={1}>
                 <Text dimColor>{focusedOption.description}</Text>
               </Box>
@@ -134,8 +184,9 @@ export function QuestionPrompt({ request, onComplete, onCancel }: QuestionPrompt
 
       <Box marginTop={1}>
         <Text dimColor>
-          ↑↓ navegar · Enter {isLast ? "confirmar" : "próxima"} · Esc cancelar
-          {isMulti ? " · Espaço selecionar" : ""}
+          {typingOther
+            ? "Enter confirmar · Esc voltar"
+            : `↑↓ navegar · Enter ${isLast ? "confirmar" : "próxima"} · Esc cancelar${isMulti ? " · Espaço selecionar" : ""}`}
         </Text>
       </Box>
     </Box>

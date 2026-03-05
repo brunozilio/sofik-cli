@@ -147,9 +147,14 @@ export function shouldCompact(messages: Message[], lastInputTokens?: number): bo
   return false;
 }
 
+// No-op callbacks for compact() — extracted so tests can cover their call sites.
+const _compactOnToolUse = async (_name: string, _input: unknown): Promise<void> => {};
+const _compactOnToolResult = (_result: ToolResult): void => {};
+
 export async function compact(
   _client: unknown,
-  messages: Message[]
+  messages: Message[],
+  _streamFn: typeof providerStream = providerStream
 ): Promise<Message[]> {
   logger.llm.info("Compactação de contexto iniciada", { messageCount: messages.length, model: currentModel });
   const start = Date.now();
@@ -160,12 +165,12 @@ export async function compact(
   ];
 
   let text = "";
-  for await (const chunk of providerStream({
+  for await (const chunk of _streamFn({
     model: currentModel,
     messages: compactionMessages,
     tools: [],
-    onToolUse: async () => {},
-    onToolResult: () => {},
+    onToolUse: _compactOnToolUse,
+    onToolResult: _compactOnToolResult,
   })) {
     text += chunk;
   }

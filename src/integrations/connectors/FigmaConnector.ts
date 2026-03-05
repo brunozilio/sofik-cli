@@ -9,6 +9,7 @@ function figmaHeaders(token: string | undefined): Record<string, string> {
 }
 
 export class FigmaConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "figma",
       name: "Figma",

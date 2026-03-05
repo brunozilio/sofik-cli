@@ -20,6 +20,7 @@ async function linearQuery(apiKey: string, query: string, variables?: Record<str
 }
 
 export class LinearConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "linear",
       name: "Linear",

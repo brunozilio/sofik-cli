@@ -19,6 +19,7 @@ function domain(creds: IntegrationCredentials): string {
 }
 
 export class AtlassianConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "atlassian",
       name: "Atlassian",

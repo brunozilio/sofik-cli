@@ -5,6 +5,9 @@ import os from "node:os";
 import {
   logger,
   setLogSession,
+  setLogRequest,
+  setLogTurn,
+  setLogToolCall,
   getLogDir,
   LOG_DIR,
   type LogEntry,
@@ -35,6 +38,41 @@ function lastEntry(cat: string): LogEntry | undefined {
   const entries = readLog(cat);
   return entries[entries.length - 1];
 }
+
+// ─── setLogRequest ────────────────────────────────────────────────────────────
+
+describe("setLogRequest()", () => {
+  test("does not throw when called with a request ID", () => {
+    expect(() => setLogRequest("req-test-123")).not.toThrow();
+    setLogRequest(undefined);
+  });
+
+  test("req ID appears in subsequent log entries", () => {
+    const reqId = `req-${Date.now()}`;
+    setLogRequest(reqId);
+    logger.app.info("request test", { _marker: reqId });
+    const entry = lastEntry("app");
+    expect(entry?.req).toBe(reqId);
+    setLogRequest(undefined);
+  });
+
+  test("setLogRequest(undefined) clears req from entries", () => {
+    setLogRequest("temp-req-xyz");
+    setLogRequest(undefined);
+    logger.app.info("no req test");
+    const entry = lastEntry("app");
+    expect(entry?.req).toBeUndefined();
+  });
+
+  test("logger.setRequest() is equivalent to setLogRequest()", () => {
+    const reqId = `lsr-${Date.now()}`;
+    logger.setRequest(reqId);
+    logger.app.info("lsr test", { _marker: reqId });
+    const entry = lastEntry("app");
+    expect(entry?.req).toBe(reqId);
+    logger.setRequest(undefined);
+  });
+});
 
 // ─── LOG_DIR / getLogDir ──────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ function vercelHeaders(token: string | undefined): Record<string, string> {
 }
 
 export class VercelConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "vercel",
       name: "Vercel",

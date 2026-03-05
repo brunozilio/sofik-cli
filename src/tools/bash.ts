@@ -8,7 +8,7 @@ import { logger } from "../lib/logger.ts";
 import { backgroundTaskRegistry, notifyTaskComplete } from "../lib/backgroundTasks.ts";
 import type { BackgroundTask } from "../lib/backgroundTasks.ts";
 
-const TIMEOUT_MS = 120_000;
+const TIMEOUT_MS = 300_000;
 const MAX_OUTPUT_CHARS = 30_000;
 
 let shellCwd = process.cwd();
@@ -47,8 +47,8 @@ While the Bash tool can do similar things, it's better to use the built-in tools
  - If your command will create new directories or files, first use this tool to run \`ls\` to verify the parent directory exists and is the correct location.
  - Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of \`cd\`. You may use \`cd\` if the User explicitly requests it.
- - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).
- - You can use the \`run_in_background\` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. Use TaskOutput to read the output. Use TaskStop to cancel.
+ - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 300000ms (5 minutes). For package installations (npm install, bun install, npx, etc.) set timeout to 600000 or use run_in_background.
+ - You can use the \`run_in_background\` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. Use TaskOutput to read the output. Use TaskStop to cancel. Prefer this for long-running installs or builds.
  - Write a clear, concise description of what your command does. For simple commands, keep it brief (5-10 words). For complex commands (piped commands, obscure flags, or anything hard to understand at a glance), include enough context so that the user can understand what your command will do.
  - When issuing multiple commands:
   - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.

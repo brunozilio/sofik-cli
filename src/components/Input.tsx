@@ -120,10 +120,22 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
   const aboveCount = windowStart;
   const belowCount = Math.max(0, suggestions.length - windowStart - MAX_SUGGESTIONS);
 
+  // Auto-submit queued value when transitioning from disabled → enabled
+  const prevDisabledRef = useRef(disabled);
+  useEffect(() => {
+    if (prevDisabledRef.current && !disabled && value.trim()) {
+      const trimmed = value.trim();
+      setValue("");
+      setCursorPos(0);
+      setHistoryIdx(-1);
+      onSubmit(trimmed);
+    }
+    prevDisabledRef.current = disabled;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled]);
+
   useInput(
     (input, key) => {
-      if (disabled) return;
-
       // ── Suggestion navigation ──────────────────────────────────────────────
       if (suggestions.length > 0) {
         if (key.upArrow) {
@@ -229,6 +241,7 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
       }
 
       if (key.return) {
+        if (disabled) return; // keep value queued; auto-submits when agent finishes
         const trimmed = value.trim();
         if (trimmed) {
           // Save to history (dedup and cap at MAX_HISTORY)
@@ -327,7 +340,7 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
         setCursorPos((p) => p + input.length);
       }
     },
-    { isActive: !disabled }
+    { isActive: true }
   );
 
   // Multiline cursor: find which line/col the cursor is on
@@ -370,15 +383,17 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
       )}
 
       {/* Input field */}
-      {disabled ? (
+      {disabled && !value ? (
         <Box borderStyle="round" borderColor="gray" paddingX={1}>
           <Text dimColor>{placeholder ?? "Aguardando…"}</Text>
         </Box>
       ) : (
-        <Box borderStyle="round" borderColor="green" paddingX={1} flexDirection="column">
+        <Box borderStyle="round" borderColor={disabled ? "yellow" : "green"} paddingX={1} flexDirection="column">
           {allLines.map((line, i) => {
-            const prefix = i === 0 ? <Text color="green">❯ </Text> : <Text>{"  "}</Text>;
-            if (i === cursorLine) {
+            const prefix = i === 0
+              ? <Text color={disabled ? "yellow" : "green"}>{disabled ? "⏳ " : "❯ "}</Text>
+              : <Text>{"  "}</Text>;
+            if (!disabled && i === cursorLine) {
               const lineBefore = line.slice(0, cursorCol);
               const lineCursor = line[cursorCol] ?? " ";
               const lineAfter  = line.slice(cursorCol + 1);
@@ -394,7 +409,7 @@ export function Input({ onSubmit, disabled, placeholder, commands = [] }: InputP
             return (
               <Box key={i}>
                 {prefix}
-                <Text>{line}</Text>
+                <Text dimColor={disabled}>{line}</Text>
               </Box>
             );
           })}

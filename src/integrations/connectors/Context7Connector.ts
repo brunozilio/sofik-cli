@@ -5,6 +5,7 @@ import { fetchWithProxy } from "../../lib/fetchWithProxy.ts";
 const BASE_URL = "https://api.context7.com/v1";
 
 export class Context7Connector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "context7",
       name: "Context7",

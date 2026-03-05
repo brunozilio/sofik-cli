@@ -142,6 +142,13 @@ describe("getCredentials", () => {
     const result = getCredentials("github");
     expect(result).toBeNull();
   });
+
+  test("returns null when stored data is corrupted (decryption fails)", () => {
+    saveCredentials("github", { apiKey: "valid-key" });
+    dbRun("UPDATE integrations SET credentials_encrypted = 'corrupted-not-valid-base64-or-cipher' WHERE provider = 'github'", []);
+    const result = getCredentials("github");
+    expect(result).toBeNull();
+  });
 });
 
 // ── listConnectedProviders ────────────────────────────────────────────────────

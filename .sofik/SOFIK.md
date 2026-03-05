@@ -1,0 +1,3 @@
+```json:hooks
+{"PreToolUse":[{"matcher":{"tools":["TestTool"]},"hooks":[{"type":"http","url":"http://test-pre/hook"}]},{"matcher":{"tools":["BashTool"]},"hooks":[{"type":"bash","command":"true"}]},{"matcher":{"tools":["*"]},"hooks":[{"type":"http","url":"http://test-pre/wildcard"}]},{"matcher":{},"hooks":[{"type":"http","url":"http://test-pre/nomatcher"}]}],"PostToolUse":[{"matcher":{"tools":["PostTool"]},"hooks":[{"type":"http","url":"http://test-post/hook"}]},{"matcher":{"tools":["FailTool"]},"hooks":[{"type":"bash","command":"exit 1"}]},{"matcher":{"tools":["BashPre"]},"hooks":[{"type":"bash","command":"echo post-bash"}]},{"matcher":{},"hooks":[{"type":"http","url":"http://test-post/nomatcher"}]}]}
+```

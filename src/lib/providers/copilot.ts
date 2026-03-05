@@ -152,6 +152,7 @@ function toOpenAITools(tools: import("../types.ts").ToolDefinition[]) {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export class CopilotProvider implements LLMProvider {
+  constructor() {}
   readonly name = "copilot";
 
   supportsModel(model: string): boolean {

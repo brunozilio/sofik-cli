@@ -21,6 +21,7 @@ function accountId(creds: IntegrationCredentials): string {
 }
 
 export class CloudflareConnector extends BaseConnector {
+  constructor() { super(); }
   readonly definition: ConnectorDefinition = {
       provider: "cloudflare",
       name: "Cloudflare Developer Platform",

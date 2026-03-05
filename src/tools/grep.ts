@@ -50,7 +50,11 @@ export const grepTool: ToolDefinition = {
 
     const flags: string[] = ["-r", "--include=*"];
     if (caseInsensitive) flags.push("-i");
-    if (glob) flags.push(`--include=${glob}`);
+    if (glob) {
+      // Strip zsh/bash extglob syntax (e.g. *(foo|bar), @(a|b)) — not supported by grep --include
+      const safeGlob = glob.replace(/[@*!+?]\([^)]*\)/g, "*");
+      flags.push(`--include=${safeGlob}`);
+    }
     if (outputMode === "files_with_matches") flags.push("-l");
     if (outputMode === "count") flags.push("-c");
     if (context !== undefined) flags.push(`-C${context}`);
@@ -59,12 +63,12 @@ export const grepTool: ToolDefinition = {
     // Exclude noise
     flags.push("--exclude-dir=node_modules", "--exclude-dir=.git");
 
-    const cmd = `grep ${flags.join(" ")} ${JSON.stringify(pattern)} ${JSON.stringify(searchPath)} 2>/dev/null | head -${MAX_RESULTS}`;
+    const cmd = `set -o pipefail; grep ${flags.join(" ")} ${JSON.stringify(pattern)} ${JSON.stringify(searchPath)} 2>/dev/null | head -${MAX_RESULTS}`;
 
     logger.tool.debug("Grep: buscando padrão", { pattern, searchPath, glob, outputMode });
 
     try {
-      const result = execSync(cmd, { encoding: "utf-8" });
+      const result = execSync(cmd, { encoding: "utf-8", shell: "/bin/bash" });
       const lines = result.trim().split("\n").filter(Boolean);
       logger.tool.debug("Grep: resultado", { pattern, matchCount: lines.length, limited: lines.length >= MAX_RESULTS });
       if (lines.length === 0) return "Nenhuma correspondência encontrada.";
